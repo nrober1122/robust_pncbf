@@ -8,8 +8,8 @@ import typer
 from loguru import logger
 import jax
 
-import run_config.int_avoid.taxinet_cfg
-from pncbf.dyn.taxinet import Taxinet 
+import run_config.int_avoid.dubins3davoid_cfg
+from pncbf.dyn.dubins3d_avoid import Dubins3DAvoid
 from pncbf.dyn.sim_cts import SimCtsReal
 from pncbf.plotting.contour_utils import centered_norm
 from pncbf.plotting.plotstyle import PlotStyle
@@ -29,12 +29,13 @@ def main(ckpt_path: pathlib.Path):
     run_path = get_run_path_from_ckpt(ckpt_path)
     plot_dir = mkdir(run_path / "eval")
 
-    task = Taxinet()
+    task = Dubins3DAvoid()
 
     # nom_pol = task.nom_pol_osc
-    nom_pol = task.nom_pol_rng3
+    # nom_pol = task.nom_pol_rng3
+    nom_pol = task.nom_pol_goto
 
-    CFG = run_config.int_avoid.taxinet_cfg.get(seed)
+    CFG = run_config.int_avoid.dubins3davoid_cfg.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
     alg = load_ckpt(alg, ckpt_path)
     logger.info("Loaded ckpt from {}!".format(ckpt_path))
@@ -43,7 +44,7 @@ def main(ckpt_path: pathlib.Path):
     # x0 = np.array([-0.6, 1.7])
     # x0 = np.array([0.5, -1.7])
     # x0 = np.array([0.8, 0.3])
-    x0 = np.array([0.5, 0.6])
+    x0 = np.array([-1.5, 0.0, 0.0])
     T = 80
     tf = T * task.dt
     noise_scale = 0.1
@@ -104,7 +105,8 @@ def main(ckpt_path: pathlib.Path):
 
     levels = 31
     figsize = (8, 4)
-    fig, axes = plt.subplots(1, task.nh, figsize=figsize, layout="constrained")
+    fig, axes = plt.subplots(1, task.nh, figsize=figsize, layout="constrained", squeeze=False)
+    axes = axes.flatten()
     for ii, ax in enumerate(axes):
         cs0 = ax.contourf(bb_Xs, bb_Ys, bbh_Vh[:, :, ii], norm=norm, levels=levels, cmap="RdBu_r", alpha=0.9)
         cs1 = ax.contour(
