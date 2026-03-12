@@ -9,6 +9,7 @@ import numpy as np
 import shapely
 from jaxproxqp.jaxproxqp import JaxProxQP
 from jaxtyping import Float
+from typing import Callable
 
 from pncbf.dyn.dyn_types import BState, Control, Disturb, HFloat, LFloat, PolObs, State, TState, VObs
 from pncbf.dyn.odeint import rk4, tsit5
@@ -34,7 +35,7 @@ class Dubins3DAvoid(Task):
     NU = 1
     ND = 1
 
-    P, V = range(NX)
+    X, Y, THETA = range(NX)
     (A,) = range(NU)
 
     DT = 0.1
@@ -188,21 +189,29 @@ class Dubins3DAvoid(Task):
         return tsit5(dt, 4, xdot_with_u, state), np.linspace(0, dt, num=5)
 
     def train_bounds(self) -> Float[Arr, "2 nx"]:
-        return np.array([(-2.5, 2.5), (-3.0, 3.0)]).T
+        return np.array([(-2.5, 2.5), (-3.0, 3.0), (-np.pi, np.pi)]).T
+    
+    def has_episode_pol(self) -> bool:
+        return True
+    
+    def make_episode_pol(self, key: PRNGKey, nom_pol) -> Callable:
+        angle = jr.uniform(key, minval=-jnp.pi, maxval=jnp.pi)
+        goal = 3.0 * jnp.array([jnp.cos(angle), jnp.sin(angle)])
+        return ft.partial(nom_pol, goal=goal)
 
     def contour_bounds(self) -> Float[Arr, "2 nx"]:
-        return np.array([(-2.5, 2.5), (-3.0, 3.0)]).T
+        return np.array([(-2.5, 2.5), (-3.0, 3.0), (-np.pi, np.pi)]).T
 
     def get_paper_ci_x0(self, n_pts: int = 80):
         with jax.ensure_compile_time_eval():
-            bounds = np.array([(-1.1, 1.1), (-2.1, 2.1)]).T
+            bounds = np.array([(-1.1, 1.1), (-2.1, 2.1), (-np.pi, np.pi)]).T
             idxs = (0, 1)
             bb_Xs, bb_Ys, bb_x0 = get_mesh_np(bounds, idxs, n_pts, n_pts, self.nominal_val_state())
         return bb_x0, bb_Xs, bb_Ys
 
     def get_paper_pi_x0(self, n_pts: int = 80):
         with jax.ensure_compile_time_eval():
-            bounds = np.array([(-1.25, 1.25), (-2.25, 2.25)]).T
+            bounds = np.array([(-1.25, 1.25), (-2.25, 2.25), (-np.pi, np.pi)]).T
             idxs = (0, 1)
             bb_Xs, bb_Ys, bb_x0 = get_mesh_np(bounds, idxs, n_pts, n_pts, self.nominal_val_state())
         return bb_x0, bb_Xs, bb_Ys
@@ -243,14 +252,8 @@ class Dubins3DAvoid(Task):
     def get_plot_rng_x0(self) -> BState:
         return np.array([[-1.0, 0.0]])
 
-    def in_ci_approx(self, state: State) -> BoolScalar:
-        x, v = self.chk_x(state)
-        in_right = x <= self.pos_wall - jnp.maximum(v, 0) ** 2 / 2
-        in_left = x >= jnp.minimum(v, 0) ** 2 / 2 - self.pos_wall
-        return in_left & in_right
-
     def nominal_val_state(self) -> State:
-        return np.array([-1.0, 0.0])
+        return np.array([-1.0, 0.0, 0.0])
 
     def has_eq_state(self) -> bool:
         return True
@@ -259,12 +262,20 @@ class Dubins3DAvoid(Task):
         return np.zeros(2)
 
     def _phase2d_setups(self) -> list[Task.Phase2DSetup]:
-        return [Task.Phase2DSetup("phase", self.plot_phase, Task.mk_get2d([self.P, self.V]))]
+        return [Task.Phase2DSetup("phase", self.plot_phase, Task.mk_get2d([self.X, self.Y]))]
 
     def nom_pol_osc(self, state: State):
         self.chk_x(state)
         K = np.array([[1.01, 0.2]])
         return jnp.clip(-K @ state, -1, 1.0)
+    
+    def nom_pol_goto(self, state: State, goal: jnp.ndarray = jnp.array([2.0, 0.0])) -> Control:
+        x, y, theta = self.chk_x(state)
+        dx, dy = goal[0] - x, goal[1] - y
+        theta_des = jnp.arctan2(dy, dx)
+        err = theta_des - theta
+        err = (err + jnp.pi) % (2 * jnp.pi) - jnp.pi
+        return jnp.array([jnp.clip(2.0 * err, -1.0, 1.0)])
 
     def nom_pol_rng(self, state: State, key: PRNGKey = jr.PRNGKey(58123)):
         self.chk_x(state)

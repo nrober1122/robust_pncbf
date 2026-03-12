@@ -1,5 +1,6 @@
 import functools as ft
-
+import jax
+import jax.numpy as jnp
 import jax.lax as lax
 import numpy as np
 from diffrax import (
@@ -85,9 +86,21 @@ class SimCtsReal:
 
         return self.policy(state)
 
-    def rollout_plot(self, x0: State):
+    def rollout_plot(self, x0: State, noise_scale: float = 0.0, rng_key=None):
+        nx = self.task.nx
+        use_noise = noise_scale > 0.0
+
         def body(t, state, args):
-            control = self.get_control(state)
+            # x_true = state[:nx]
+            
+            if use_noise:
+                key = jax.random.fold_in(rng_key, jnp.int32(t * 1e4))
+                # noise = jax.random.normal(key, shape=(nx,)) * noise_scale
+                noise = -jnp.ones(nx) * noise_scale
+                control = self.get_control(state + noise)
+            else:
+                control = self.get_control(state)
+            
             return self.task.xdot(state, control)
 
         term = ODETerm(body)
@@ -115,5 +128,15 @@ class SimCtsReal:
             adjoint=adjoint,
             max_steps=self.max_steps,
         )
+
+        if use_noise:
+            # re-derive noisy observations at each saved timestep for plotting
+            # since x_noisy = x_true + noise, we just re-sample at the saved ts
+            keys = jax.vmap(lambda t: jax.random.fold_in(rng_key, jnp.int32(t * 1e4)))(solution.ts)
+            # noise = jax.vmap(lambda k: jax.random.normal(k, shape=(nx,)) * noise_scale)(keys)
+            noise = -jnp.ones((len(solution.ts), nx)) * noise_scale
+            T_states_noisy = solution.ys + noise
+            return solution.ys, solution.ts, solution.stats, T_states_noisy
+
         T_states = solution.ys
-        return T_states, solution.ts, solution.stats
+        return T_states, solution.ts, solution.stats, None
