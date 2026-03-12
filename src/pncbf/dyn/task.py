@@ -191,6 +191,12 @@ class Task(ABC):
     def sample_train_x0(self, key: PRNGKey, n_sample: int) -> BState:
         x_lb, x_ub = self.train_bounds()
         return jr.uniform(key, (n_sample, self.nx), minval=x_lb, maxval=x_ub)
+    
+    def make_episode_pol(self, key: PRNGKey, nom_pol) -> Callable:
+        return nom_pol
+    
+    def has_episode_pol(self) -> bool:
+        return False
 
     def get_plot_x0(self, setup_idx: int = 0, n_pts: int = 13) -> BState:
         with jax.ensure_compile_time_eval():

@@ -263,7 +263,9 @@ class Taxinet(Task):
 
     def nom_pol_osc(self, state: State):
         self.chk_x(state)
-        K = np.array([[0.74, 0.44*np.pi/180]])
+        # K = np.array([[0.74, 0.44*np.pi/180]])
+        # K = np.tan(np.array([[0.74, 0.44*np.pi/180]]))
+        K = jnp.array([[0.74, 0.44*np.pi/180]])
         return jnp.clip(-K @ state, -1, 1.0)
 
     def nom_pol_rng(self, state: State, key: PRNGKey = jr.PRNGKey(58123)):

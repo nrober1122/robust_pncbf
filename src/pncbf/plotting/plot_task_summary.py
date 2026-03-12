@@ -37,12 +37,12 @@ def plot_task_summary(task: Task, plotter: Plotter, nom_pol=None):
     tf = T * task.dt
 
     sim = SimCtsReal(task, nom_pol, tf, task.dt, use_obs=False)
-    bbT_x, _, _ = jax2np(jax_jit(rep_vmap(sim.rollout_plot, rep=2))(bb_x))
+    bbT_x, _, _, _ = jax2np(jax_jit(rep_vmap(sim.rollout_plot, rep=2))(bb_x))
     bbT_h = jax2np(rep_vmap(task.h, rep=3)(bbT_x))
     bb_V_nom = bbT_h.max(-1)
 
     b_x0_plot = task.get_plot_x0()
-    bT_x_plot, _, _ = jax2np(jax_jit(jax_vmap(sim.rollout_plot))(b_x0_plot))
+    bT_x_plot, _, _, _ = jax2np(jax_jit(jax_vmap(sim.rollout_plot))(b_x0_plot))
     plotter.batch_phase2d(bT_x_plot, "phase_nom_pol.pdf", extra_lines=[(bb_Xs, bb_Ys, bb_V_nom, "C5")])
 
     # Also see what the nominal policy is like.
