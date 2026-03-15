@@ -33,6 +33,7 @@ class Dubins3DAvoid(Task):
 
         self.pos_obs = jnp.array([0.0, 0.0])
         self.radius_obs = 0.5
+        self.has_episode_pol_val = False
 
     # ------------------------------------------------------------------
     # Required Task interface
@@ -134,7 +135,7 @@ class Dubins3DAvoid(Task):
 
     def nominal_val_state(self) -> State:
         # Start to the left of the obstacle, heading right.
-        return np.array([-1.5, 0.0, 0.0])
+        return np.array([-1.5, 0.0, 0*np.pi/2])
 
     def train_bounds(self) -> Float[Arr, "2 nx"]:
         return np.array([(-2.5, 2.5), (-2.5, 2.5), (-np.pi, np.pi)]).T
@@ -156,14 +157,42 @@ class Dubins3DAvoid(Task):
         # Wrap to [-pi, pi].
         err = (err + jnp.pi) % (2 * jnp.pi) - jnp.pi
         return jnp.array([jnp.clip(2.0 * err, -1.0, 1.0)])
+    
+    def nom_pol_zero(self, state: State, goal=None) -> Control:
+        return jnp.array([0.0])
+
+    def nom_pol_avoid(self, state: State, goal=None) -> Control:
+        x, y, theta = self.chk_x(state)
+        
+        # Vector from obstacle to agent
+        dx = x - self.pos_obs[0]
+        dy = y - self.pos_obs[1]
+        dist = jnp.sqrt(dx**2 + dy**2)
+        
+        # Desired heading: directly away from obstacle
+        theta_away = jnp.arctan2(dy, dx)
+        
+        # Heading error to "away" direction
+        err = theta_away - theta
+        err = (err + jnp.pi) % (2 * jnp.pi) - jnp.pi
+        
+        # Scale by proximity — only turn when close
+        influence_radius = 1.5
+        weight = jnp.clip(1.0 - dist / influence_radius, 0.0, 1.0)
+        
+        omega = jnp.clip(2.0 * weight * err, -1.0, 1.0)
+        return jnp.array([omega])
 
     def has_episode_pol(self) -> bool:
-        return True
+        return self.has_episode_pol
 
     def make_episode_pol(self, key, nom_pol):
         angle = jr.uniform(key, minval=-jnp.pi, maxval=jnp.pi)
         goal = 3.0 * jnp.array([jnp.cos(angle), jnp.sin(angle)])
         return ft.partial(nom_pol, goal=goal)
+    # def make_episode_pol(self, key, nom_pol):
+    #     omega = jr.uniform(key, minval=-1.0, maxval=1.0, shape=(1,))
+    #     return lambda state: omega
 
     # ------------------------------------------------------------------
     # Plotting

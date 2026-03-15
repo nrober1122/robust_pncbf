@@ -20,7 +20,7 @@ def get(seed: int) -> RunCfg[PNCBFCfg, LoopCfg]:
     collect_size = 16_384
     rollout_dt = Dubins3DAvoid.DT
     train_cfg = PNCBFTrainCfg(
-        collect_size, rollout_dt, rollout_T=99, batch_size=8192, lam=lam, tau=0.005, tgt_rhs=tgt_rhs
+        collect_size, rollout_dt, rollout_T=50, batch_size=8192, lam=lam, tau=0.005, tgt_rhs=tgt_rhs
     )
     eval_cfg = PNCBFEvalCfg(eval_rollout_T=64)
     alg_cfg = PNCBFCfg(

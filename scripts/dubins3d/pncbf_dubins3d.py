@@ -34,7 +34,7 @@ def main(
 
     CFG = run_config.int_avoid.dubins3davoid_cfg.get(seed)
 
-    nom_pol = task.nom_pol_goto
+    nom_pol = task.nom_pol_avoid
     CFG.extras = {"nom_pol": "pp"}
 
     if ckpt is not None:

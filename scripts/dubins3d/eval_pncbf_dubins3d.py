@@ -33,7 +33,7 @@ def main(ckpt_path: pathlib.Path):
 
     # nom_pol = task.nom_pol_osc
     # nom_pol = task.nom_pol_rng3
-    nom_pol = task.nom_pol_goto
+    nom_pol = task.nom_pol_zero
 
     CFG = run_config.int_avoid.dubins3davoid_cfg.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
@@ -44,10 +44,10 @@ def main(ckpt_path: pathlib.Path):
     # x0 = np.array([-0.6, 1.7])
     # x0 = np.array([0.5, -1.7])
     # x0 = np.array([0.8, 0.3])
-    x0 = np.array([-1.5, 0.0, 0.0])
+    x0 = np.array([-1.7, 0.0, 0.0])
     T = 80
     tf = T * task.dt
-    noise_scale = 0.1
+    noise_scale = 0.0
 
     # Original nominal policy.
     logger.info("Sim nom...")
