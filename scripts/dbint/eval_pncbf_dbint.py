@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import typer
 from loguru import logger
+import jax
 
 import run_config.int_avoid.doubleintwall_cfg
 from pncbf.dyn.doubleint_wall import DoubleIntWall
@@ -23,6 +24,7 @@ def main(ckpt_path: pathlib.Path):
     jax_default_x32()
     set_logger_format()
     seed = 0
+    rng_key = jax.random.PRNGKey(seed)
 
     run_path = get_run_path_from_ckpt(ckpt_path)
     plot_dir = mkdir(run_path / "eval")
@@ -43,11 +45,12 @@ def main(ckpt_path: pathlib.Path):
     x0 = np.array([0.8, 0.3])
     T = 80
     tf = T * task.dt
+    noise_scale = 0.1
 
     # Original nominal policy.
     logger.info("Sim nom...")
     sim = SimCtsReal(task, nom_pol, tf, task.dt, use_pid=True)
-    T_x_nom, T_t_nom, _ = jax2np(jax_jit(sim.rollout_plot)(x0))
+    T_x_nom, T_t_nom, _, T_x_nom_noisy = jax2np(jax_jit(ft.partial(sim.rollout_plot, noise_scale=noise_scale, rng_key=rng_key))(x0))
 
     # alphas = np.array([0.1, 1.0, 5.0, 10.0])
     alphas = np.array([0.001, 0.01, 0.1, 5.0])
@@ -56,17 +59,20 @@ def main(ckpt_path: pathlib.Path):
         alpha_unsafe = 10.0
         pol = ft.partial(alg.get_cbf_control_sloped, alpha_safe, alpha_unsafe, V_shift=1e-2)
         sim = SimCtsReal(task, pol, tf, 0.5 * task.dt, use_obs=False, use_pid=False, max_steps=512)
-        T_x, T_t, _ = sim.rollout_plot(x0)
-        return T_x, T_t
+        T_x, T_t, _, T_x_noisy = sim.rollout_plot(x0, noise_scale=noise_scale, rng_key=rng_key)
+        return T_x, T_t, T_x_noisy
 
     logger.info("Sim pol for different alphas...")
     bT_x, bT_t = [], []
+    bT_x_noisy = []
     for alpha in alphas:
-        T_x, T_t = jax2np(jax_jit(int_pol_for_alpha)(alpha))
+        T_x, T_t, T_x_noisy = jax2np(jax_jit(int_pol_for_alpha)(alpha))
         bT_x.append(T_x)
         bT_t.append(T_t)
+        bT_x_noisy.append(T_x_noisy)
     bT_x = np.stack(bT_x, axis=0)
     bT_t = np.stack(bT_t, axis=0)
+    bT_x_noisy = np.stack(bT_x_noisy, axis=0)
 
     logger.info("bbh_Vh...")
     bb_x, bb_Xs, bb_Ys = task.get_contour_x0(n_pts=192)
@@ -79,8 +85,12 @@ def main(ckpt_path: pathlib.Path):
 
     fig, ax = plt.subplots(layout="constrained")
     ax.plot(T_x_nom[:, 0], T_x_nom[:, 1], color="C3", ls="--", label="Nominal")
+    if T_x_nom_noisy is not None:
+        ax.plot(T_x_nom_noisy[:, 0], T_x_nom_noisy[:, 1], color="C3", ls=":", alpha=0.6, label="Nominal (noisy)")
     for ii, alpha in enumerate(alphas):
         ax.plot(bT_x[ii, :, 0], bT_x[ii, :, 1], color=f"C{ii}", lw=0.5, ls="--", label=f"QP ({alpha})", zorder=100)
+        if bT_x_noisy[ii] is not None:
+            ax.plot(bT_x_noisy[ii, :, 0], bT_x_noisy[ii, :, 1], color=f"C{ii}", lw=0.5, ls=":", alpha=0.6)
     ax.contour(bb_Xs, bb_Ys, bb_Vh, levels=[0.0], colors=[PlotStyle.ZeroColor], alpha=0.6, linewidths=1.0)
     task.plot_phase(ax)
     ax.legend()
