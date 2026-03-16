@@ -157,7 +157,6 @@ class HERON(Task):
         dt = get_or(dt, self.dt)
         return tsit5(dt, 4, xdot_with_u, state), np.linspace(0, dt, num=5)
     
-    # QUESTION: Should this just be a first order CBF?
     # ------------------------------------------------------------------
     # Safety constraint h
     # ------------------------------------------------------------------
@@ -175,7 +174,6 @@ class HERON(Task):
         hs = -poly4_clip_max_flat(-hs, max_val=-self.h_min)
         return hs
 
-    # QUESTION: What is this for?
     # ------------------------------------------------------------------
     # Observations
     # ------------------------------------------------------------------
@@ -185,7 +183,6 @@ class HERON(Task):
         obs = jnp.array([ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma])
         return obs, obs
     
-    # QUESTION: What is eq_state? Equilibrium State?
     # ------------------------------------------------------------------
     # States
     # ------------------------------------------------------------------
@@ -194,14 +191,27 @@ class HERON(Task):
         return True
 
     def eq_state(self) -> State:
-        return np.zeros(3)
+        return np.zeros(self.NX)
 
+    # TODO: Define starting conditions
     def nominal_val_state(self) -> State:
         # Start to the left of the obstacle, heading right.
         return np.array([-1.5, 0.0, 0.0])
 
+    # TODO: consider what the proper range is for UNREP
     def train_bounds(self) -> Float[Arr, "2 nx"]:
         return np.array([(-2.5, 2.5), (-2.5, 2.5), (-np.pi, np.pi)]).T
 
     def contour_bounds(self) -> Float[Arr, "2 nx"]:
         return self.train_bounds()
+    
+    # ------------------------------------------------------------------
+    # Nominal policy: steer toward the center of the safe region
+    # ------------------------------------------------------------------
+    def nom_pol_goto(self, state: State, goal: jnp.ndarray = jnp.array([2.0, 0.0])) -> Control:
+        # TODO: implement UNREP BHV?
+        pass
+
+    # ------------------------------------------------------------------
+    # Plotting
+    # ------------------------------------------------------------------
