@@ -136,7 +136,9 @@ class SimCtsReal:
             # noise = jax.vmap(lambda k: jax.random.normal(k, shape=(nx,)) * noise_scale)(keys)
             noise = -jnp.ones((len(solution.ts), nx)) * noise_scale
             T_states_noisy = solution.ys + noise
-            return solution.ys, solution.ts, solution.stats, T_states_noisy
+            T_controls = jax.vmap(lambda s, n: self.get_control(s + n))(solution.ys, noise)
+            return solution.ys, solution.ts, solution.stats, T_states_noisy, T_controls
 
         T_states = solution.ys
-        return T_states, solution.ts, solution.stats, None
+        T_controls = jax.vmap(self.get_control)(solution.ys)
+        return solution.ys, solution.ts, solution.stats, None, T_controls
