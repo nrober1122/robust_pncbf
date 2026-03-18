@@ -15,7 +15,7 @@ from pncbf.utils.jax_types import Arr, TFloat
 
 from typing import List, Tuple
 
-class HERON(Task):
+class Error(Task):
     NX: int = 14
     NU: int = 2
 
@@ -193,16 +193,19 @@ class HERON(Task):
         return g
     
     def step(self, state: State, control: Control, disturb: Disturb = None) -> State:
-        control: Control = self.leader.get_leader_control(self.mode)
-        self.leader.step(control)
+        leader_control: Control = self.leader.get_leader_control(self.mode)
+        self.leader.step(leader_control)
         self.follower.step(control)
 
         xdot_with_u = ft.partial(self.xdot, control=control)
         return rk4(self.dt, xdot_with_u, state)
     
     def step_plot(
-        self, state: State, control: Control, disturb: Disturb = None, dt: float = None
-    ) -> tuple[TState, TFloat]:
+        self, state: State, control: Control, disturb: Disturb = None, dt: float = None) -> tuple[TState, TFloat]:
+        leader_control: Control = self.leader.get_leader_control(self.mode)
+        self.leader.step(leader_control)
+        self.follower.step(control)
+
         xdot_with_u = ft.partial(self.xdot, control=control)
         dt = get_or(dt, self.dt)
         return tsit5(dt, 4, xdot_with_u, state), np.linspace(0, dt, num=5)
@@ -215,7 +218,6 @@ class HERON(Task):
         ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
 
         # Negative means unsafe (outside or on the obstacle).
-        # h = distance metric from center of safe region
         h_obs = self._s*((self._a*self._b)**2 - (self._b * ex)**2 - (self._a * ey)**2)
 
         # h <= 1
@@ -248,12 +250,25 @@ class HERON(Task):
     def nominal_val_state(self) -> State:
         # Start in the safe region
         return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-
-    # TODO: consider what the proper range is for UNREP
+    
+    # TODO: check with MAX
     def train_bounds(self) -> Float[Arr, "2 nx"]:
-        return np.array([(-2.5, 2.5), 
-                         (-2.5, 2.5), 
-                         (-np.pi, np.pi)]).T
+        # there are set by taking the largest absolute value in sim and doubling it (at minimum)
+        return np.array([(-4, 4), # ex
+                         (-2, 2), # ex_dot
+                         (-140, 140), #ex_ddot (big spikes when hitting the safe region boundary)
+                         (-16, 16), # ey
+                         (-4, 4), # ey_dot
+                         (-60, 60), # ey_ddot
+                         (-60, 60), # eui
+                         (-40, 40), # eri
+                         (-jnp.pi, jnp.pi), # thetarel
+                         (-1.5, 1.5), # thetarel_dot
+                         (0, 4), # uF
+                         (-1, 1), # rC
+                         (-20, 20), # d
+                         (-jnp.pi, jnp.pi) # gamma
+                         ]).T
 
     def contour_bounds(self) -> Float[Arr, "2 nx"]:
         return self.train_bounds()
