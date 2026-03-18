@@ -1,44 +1,78 @@
-import numpy as np
+import jax.numpy as jnp
+import functools as ft
 from pncbf.dyn.odeint import rk4
-from typing import Tuple
+from pncbf.dyn.task import Task
+from pncbf.dyn.dyn_types import Control, State
 
-class Heron:
-    def __init__(self, initial_position: np.ndarray[float], dt = 0.01) -> None:
-        self.NX = 3
-        self.NU = 2
-        self.dt = dt
+class Heron(Task):
+    NX: int = 4
+    NU: int = 2
+
+    SURGE, SURGE_INTEGRAL_ERROR, YAWRATE, YAWRATE_INTEGRAL_ERROR = range(NX)
+    DES_SURGE, DES_YAWRATE = range(NU)
+
+    def __init__(self, initial_position, dt: float = 0.01) -> None:
+        self.dt: float = dt
 
         self.position = initial_position # x, y, heading
-        self.surge_state = np.zeros((2, 1))
-        self.yaw_rate_state = np.zeros((2, 1))
+        self.surge_state = jnp.zeros((2, 1))
+        self.yaw_rate_state = jnp.zeros((2, 1))
 
         # closed loop reference dynamics
-        self.Au: np.ndarray[float] = np.array([[0.0, 1.0], [-1.0, -24.048562]])
-        self.Bu: np.ndarray[float]= np.array([[-1.0], [0.0]])
-        self.Ar: np.ndarray[float] = np.array([[0.0, 1.0], [-6.3246, -61.78262]])
-        self.Br: np.ndarray[float]= np.array([[-1.0], [0.0]])
+        self.Au = jnp.array([[0.0, 1.0], [-1.0, -24.048562]])
+        self.Bu = jnp.array([[-1.0], [0.0]])
+        self.Ar = jnp.array([[0.0, 1.0], [-6.3246, -61.78262]])
+        self.Br = jnp.array([[-1.0], [0.0]])
 
-    def step(self, control: np.ndarray[float]) -> None:
-        x_dot_u: np.ndarray[float] = self.Au @ self.surge_state + self.Bu * control[0]
-        x_dot_r: np.ndarray[float] = self.Ar @ self.yaw_rate_state + self.Br * control[1]
+        # stacked dynamics for single system
+        self.A = jnp.block([[self.Au, jnp.zeros((2, 2))], [jnp.zeros((2, 2)), self.Ar]])
+        self.B = jnp.block([[self.Bu, jnp.zeros((2, 1))], [jnp.zeros((2, 1)), self.Br]]) 
+        self.x = jnp.vstack((self.surge_state, self.yaw_rate_state))  
 
-        x_new_u = rk4(self.dt, x_dot_u, self.surge_state)
-        x_new_r = rk4(self.dt, x_dot_r, self.yaw_rate_state)
+        # control limits
+        self.u_min = jnp.array([0, -0.6])
+        self.u_max = jnp.array([2, 0.6]) 
+
+    def f(self, state: State) -> State:
+        self.chk_x(state)
+
+        Ax: State = self.A @ state
+        return Ax
+    
+    def G(self, state: State) -> State:
+        self.chk_x(state)
+
+        G: State = self.B
+        return G
+
+    def xdot(self, state: State, control: Control) -> State:
+        self.chk_x(self.x)
+        self.chk_u(control)
+        control = control.clip(self.u_min, self.u_max)
+        f, G = self.f(state), self.G(state)
+        self.chk_x(f)
+        Gu: State = G @ control
+        self.chk_x(Gu)
+        dx: State = f + Gu
+        return self.chk_x(dx)
+
+    def step(self, control: Control) -> None:
+        xdot_with_u = ft.partial(self.xdot, control=control)
+        x_new: State = rk4(self.dt, xdot_with_u, self.x)
 
         surge: float = self.surge_state[1][0]
-        yaw_rate: float = self.yaw_rate_state[1][0]
+        yaw_rate: float = self.yaw_rate_state[2][0]
         heading: float = self.position[2][0]
-        position_dot: np.ndarray[float] = np.array([[surge*np.sin(heading)], [surge*np.cos(heading)], [yaw_rate]])
+        position_dot = jnp.array([[surge*jnp.sin(heading)], [surge*jnp.cos(heading)], [yaw_rate]])
         new_position = rk4(self.dt, position_dot, self.position)
 
         # save new states
-        self.surge_state = x_new_u
-        self.yaw_rate_state = x_new_r
+        self.x = x_new
         self.position = new_position
 
-    def get_leader_control(self, mode: str) -> np.ndarray[float]:
+    def get_leader_control(self, mode: str) -> Control:
         if mode == "straight":
-            return np.array([1.0, 0.0])
+            return jnp.array([1.0, 0.0])
         else:
             raise ValueError(f"{mode} is not a valid mode for Heron.get_leader_control(mode)")
 
