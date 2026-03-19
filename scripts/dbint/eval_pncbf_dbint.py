@@ -46,7 +46,7 @@ def main(ckpt_path: pathlib.Path):
     x0 = np.array([0.8, 0.3])
     T = 80
     tf = T * task.dt
-    noise_scale = 0.4
+    noise_scale = 0.0
 
     # Original nominal policy.
     logger.info("Sim nom...")
@@ -60,14 +60,18 @@ def main(ckpt_path: pathlib.Path):
             )
         )(x0)
     )
+    if T_x_nom_noisy is None:
+        T_x_nom_noisy = T_x_nom
 
     # alphas = np.array([0.1, 1.0, 5.0, 10.0])
     # alphas = np.array([0.001, 0.01, 0.1, 5.0])
-    alphas = np.array([3.0])
+    alphas = np.array([1.0])
 
     def int_pol_for_alpha(alpha_safe):
         alpha_unsafe = 10.0
         pol = ft.partial(alg.get_cbf_control_sloped, alpha_safe, alpha_unsafe, V_shift=1e-2)
+        # pol = ft.partial(alg.get_rcbf_control, alpha_safe, alpha_unsafe, V_shift=1e-2, rho_scale=1.5)
+        # pol = ft.partial(alg.get_rcbf_qp_control, alpha_safe, alpha_unsafe, nnv_filter=None, V_shift=1e-2)
         sim = SimCtsReal(task, pol, tf, 0.5 * task.dt, use_obs=False, use_pid=False, max_steps=512)
         T_x, T_t, _, T_x_noisy, T_controls = sim.rollout_plot(x0, noise_scale=noise_scale, rng_key=rng_key)
         return T_x, T_t, T_x_noisy, T_controls
@@ -80,7 +84,10 @@ def main(ckpt_path: pathlib.Path):
         T_x, T_t, T_x_noisy, T_controls = jax2np(jax_jit(int_pol_for_alpha)(alpha))
         bT_x.append(T_x)
         bT_t.append(T_t)
-        bT_x_noisy.append(T_x_noisy)
+        if T_x_noisy is not None:
+            bT_x_noisy.append(T_x_noisy)
+        else:
+            bT_x_noisy.append(T_x)
         bT_controls.append(T_controls)
     bT_x = np.stack(bT_x, axis=0)
     bT_t = np.stack(bT_t, axis=0)

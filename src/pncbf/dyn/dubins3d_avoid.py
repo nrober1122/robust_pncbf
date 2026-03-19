@@ -135,7 +135,7 @@ class Dubins3DAvoid(Task):
 
     def nominal_val_state(self) -> State:
         # Start to the left of the obstacle, heading right.
-        return np.array([-1.5, 0.0, 0*np.pi/2])
+        return np.array([-1.5, 0.0, 0*np.pi/4])
 
     def train_bounds(self) -> Float[Arr, "2 nx"]:
         return np.array([(-2.5, 2.5), (-2.5, 2.5), (-np.pi, np.pi)]).T

@@ -52,7 +52,7 @@ def main(ckpt_path: pathlib.Path):
     # Original nominal policy.
     logger.info("Sim nom...")
     sim = SimCtsReal(task, nom_pol, tf, task.dt, use_pid=True, max_steps=2048)
-    T_x_nom, T_t_nom, _, T_x_nom_noisy = jax2np(
+    T_x_nom, T_t_nom, _, T_x_nom_noisy, _ = jax2np(
         jax_jit(ft.partial(sim.rollout_plot, noise_scale=noise_scale, rng_key=rng_key))(x0)
     )
 
@@ -63,7 +63,7 @@ def main(ckpt_path: pathlib.Path):
         alpha_unsafe = 10.0
         pol = ft.partial(alg.get_cbf_control_sloped, alpha_safe, alpha_unsafe, V_shift=1e-2)
         sim = SimCtsReal(task, pol, tf, 0.5 * task.dt, use_obs=False, use_pid=False, max_steps=512)
-        T_x, T_t, _, T_x_noisy = sim.rollout_plot(x0, noise_scale=noise_scale, rng_key=rng_key)
+        T_x, T_t, _, T_x_noisy, _ = sim.rollout_plot(x0, noise_scale=noise_scale, rng_key=rng_key)
         return T_x, T_t, T_x_noisy
 
     logger.info("Sim pol for different alphas...")

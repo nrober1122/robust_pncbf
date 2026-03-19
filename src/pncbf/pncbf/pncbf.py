@@ -21,7 +21,12 @@ from pncbf.networks.network_utils import HidSizes, get_act_from_str
 from pncbf.networks.optim import get_default_tx
 from pncbf.networks.train_state import TrainState
 from pncbf.pncbf.compute_disc_avoid import AllDiscAvoidTerms, compute_all_disc_avoid_terms
-from pncbf.qp.min_norm_cbf import min_norm_cbf, min_norm_cbf_qp_mats
+from pncbf.qp.min_norm_cbf import (
+    min_norm_cbf, min_norm_cbf_qp_mats,
+    rcbf, rcbf_qp_mats,
+    rcbf_qp_linear, rcbf_qp_linear_mats,
+    compute_rcbf_gammas
+)
 from pncbf.utils.grad_utils import compute_norm, empty_grad_tx
 from pncbf.utils.jax_types import BBFloat, BBool, BFloat, BHBool, BTHBool, FloatScalar, MetricsDict
 from pncbf.utils.jax_utils import jax_vmap, rep_vmap, tree_copy
@@ -30,6 +35,14 @@ from pncbf.utils.none import get_or
 from pncbf.utils.rng import PRNGKey
 from pncbf.utils.schedules import Schedule, as_schedule
 
+def _resolve_alpha(h_V, alpha_safe, alpha_unsafe):
+    """Returns per-constraint alpha matching the existing sloped logic."""
+    if isinstance(alpha_safe, float) or jnp.asarray(alpha_safe).ndim == 0:
+        return jnp.where(jnp.all(h_V < 0), alpha_safe, alpha_unsafe)
+    else:
+        return jnp.where(h_V < 0,
+                         jnp.asarray(alpha_safe),
+                         jnp.asarray(alpha_unsafe))   # (nh,)
 
 @define
 class PNCBFTrainCfg:
@@ -306,6 +319,18 @@ class PNCBF(struct.PyTreeNode):
         Vh_tgt = self.Vh_tgt.replace(params=Vh_tgt_params)
 
         return new_self.replace(Vh_tgt=Vh_tgt, update_idx=self.update_idx + 1), info_mean
+    
+    def _get_cbf_ingredients(self, state: State, V_shift: float, nom_pol):
+        """Compute all ingredients shared across filter variants."""
+        Vh_apply = ft.partial(self.get_Vh, params=self.Vh.params)
+        nom_pol  = get_or(nom_pol, self.nom_pol)
+
+        h_V   = Vh_apply(state) + V_shift          # (nh,)
+        hx_Vx = jax.jacobian(Vh_apply)(state)      # (nh, nx)
+        f     = self.task.f(state)                 # (nx,)
+        G     = self.task.G(state)                 # (nx, nu)
+        u_nom = nom_pol(state)                     # (nu,)
+        return h_V, hx_Vx, f, G, u_nom
 
     def get_cbf_qpmats(self, alpha_safe: float, alpha_unsafe: float, state: State, V_shift: float = 1e-3, nom_pol=None):
         u_lb, u_ub = self.task.u_min, self.task.u_max
@@ -373,6 +398,85 @@ class PNCBF(struct.PyTreeNode):
 
     def get_cbf_control(self, alpha: float, state: State):
         return self.get_cbf_control_sloped_all(alpha, alpha, state)[0]
+    
+    # ── r-cbf ─────────────────────────────────────────────────────────────────────
+    def get_rcbf_control_all(
+        self,
+        alpha_safe: float,
+        alpha_unsafe: float,
+        state: State,
+        V_shift: float = 1e-3,
+        rho_scale: float = 0.25,
+        nom_pol=None,
+    ):
+        u_lb, u_ub = self.task.u_min, self.task.u_max
+        h_V, hx_Vx, f, G, u_nom = self._get_cbf_ingredients(state, V_shift, nom_pol)
+        alpha = _resolve_alpha(h_V, alpha_safe, alpha_unsafe)
+
+        u_opt, r, sol = rcbf(
+            alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
+            rho_scale=rho_scale,
+        )
+        return self.task.chk_u(u_opt), (r, sol)
+
+    def get_rcbf_control(self, alpha_safe, alpha_unsafe, state, V_shift=1e-3,
+                        rho_scale=0.25, nom_pol=None):
+        return self.get_rcbf_control_all(
+            alpha_safe, alpha_unsafe, state, V_shift, rho_scale, nom_pol
+        )[0]
+
+    # ── r-cbf-qp ──────────────────────────────────────────────────────────────────
+    def get_rcbf_qp_control_all(
+        self,
+        alpha_safe: float,
+        alpha_unsafe: float,
+        state: State,
+        nnv_filter = None,              # Box from nnv_state_bounds
+        epsilon: float = 1e-4,             # Regularization for QP
+        V_shift: float = 1e-3,
+        n_samples: int = 100,
+        rng_key = None,
+        nom_pol=None,
+    ):
+        u_lb, u_ub = self.task.u_min, self.task.u_max
+        h_V, hx_Vx, f, G, u_nom = self._get_cbf_ingredients(state, V_shift, nom_pol)
+        alpha = _resolve_alpha(h_V, alpha_safe, alpha_unsafe)
+        nom_pol = get_or(nom_pol, self.nom_pol)
+        
+        if nnv_filter is None:
+            state_bounds = type('obj', (object,), {
+                'lo': state - epsilon * np.ones(state.shape),
+                'hi': state + epsilon * np.ones(state.shape)
+            })()
+        else:
+            state_bounds = nnv_filter.state_bounds(epsilon=epsilon)
+        
+
+        # Sample states within bounds to estimate max control deviation.
+        rng_key = get_or(rng_key, jax.random.PRNGKey(0))
+        x_samples = jax.random.uniform(
+            rng_key,
+            shape=(n_samples, self.task.nx),
+            minval=state_bounds.lo,
+            maxval=state_bounds.hi,
+        )
+        u_hat = nom_pol(state)
+        u_samples = jax.vmap(nom_pol)(x_samples)
+        sigma_hat = jnp.max(jnp.linalg.norm(u_samples - u_hat, axis=-1)).astype(jnp.float32)
+
+        gamma1, gamma2 = compute_rcbf_gammas(sigma_hat)
+
+        u_opt, r, sol = rcbf_qp_linear(
+            alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
+            gamma1=gamma1, gamma2=gamma2,
+        )
+        return self.task.chk_u(u_opt), (r, sol)
+
+    def get_rcbf_qp_control(self, alpha_safe, alpha_unsafe, state, nnv_filter=None, epsilon=1e-4,
+                            V_shift=1e-3, num_samples=1000, nom_pol=None):
+        return self.get_rcbf_qp_control_all(
+            alpha_safe, alpha_unsafe, state, nnv_filter, epsilon, V_shift, num_samples, nom_pol
+        )[0]
 
     @ft.partial(jax.jit, static_argnames=["T", "setup_idx", "use_pid"])
     def get_bb_V_nom(self, T: int = None, setup_idx: int = 0, use_pid: bool = False):
