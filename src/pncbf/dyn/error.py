@@ -22,8 +22,10 @@ class Error(Task):
     EX, EXDOT, EXDDOT, EY, EYDOT, EYDDOT, EUI, EUR, THETAREL, THETARELDOT, UF, RC, D, GAMMA = range(NX)
     VELREF, YAWREF = range(NU)
 
+    DT = 0.04
+
     def __init__(self) -> None:
-        self._dt = 0.04
+        self._dt = Error.DT
 
         # guidance law parameters
         self._u_min_guidance: jnp.ndarray[float] = jnp.array([0, -0.6])
@@ -68,7 +70,10 @@ class Error(Task):
     # ------------------------------------------------------------------
     # Required Task interface
     # ------------------------------------------------------------------
-
+    @property
+    def n_Vobs(self) -> int:
+        return self.NX
+    
     @property 
     def dt(self) -> float:
         return self._dt
@@ -98,6 +103,10 @@ class Error(Task):
     @property
     def h_min(self) -> float:
         return -1.0
+    
+    @property
+    def max_ttc(self) -> float:
+        return 5.0
     
     # ------------------------------------------------------------------
     # Dynamics

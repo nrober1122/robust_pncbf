@@ -34,7 +34,7 @@ def main(
 
     CFG = run_config.int_avoid.error_cfg.get(seed)
 
-    nom_pol = task.nom_pol_avoid
+    nom_pol = task.nom_pol_goto
     CFG.extras = {"nom_pol": "pp"}
 
     if ckpt is not None:

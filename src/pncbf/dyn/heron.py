@@ -1,10 +1,10 @@
 import jax.numpy as jnp
 import functools as ft
 from pncbf.dyn.odeint import rk4
-from pncbf.dyn.task import Task
 from pncbf.dyn.dyn_types import Control, State
+from typing import List
 
-class Heron(Task):
+class Heron():
     NX: int = 4
     NU: int = 2
 
