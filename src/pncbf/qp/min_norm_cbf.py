@@ -131,7 +131,7 @@ def _lie_derivs(
         h_alpha = jnp.asarray(alpha)
         assert h_alpha.shape == (nh,)
 
-    h_alphah = h_alpha * (-h_V)                       # (nh,)
+    h_alphah = h_alpha * (h_V)                       # (nh,)
     return h_Lf_V, h_LG_V, h_alphah
 
 
@@ -190,10 +190,10 @@ def rcbf_qp_mats(
 
     # Constraint matrix C @ [u, r] >= b
     # Row i:  LG_i @ u + r >= -(Lf_i + alphah_i - rho_i)
-    h_rhs = h_Lf_V + h_alphah - h_rho                        # (nh,)
+    h_rhs = h_Lf_V + h_alphah + h_rho                        # (nh,)
     # C: (nh, nu+1)
-    C = jnp.concatenate([h_LG_V, jnp.ones((nh, 1), dtype=dtype)], axis=-1)
-    b = h_rhs                                                 # (nh,)
+    C = jnp.concatenate([h_LG_V, -jnp.ones((nh, 1), dtype=dtype)], axis=-1)
+    b = -h_rhs                                               # (nh,)
 
     l_box = jnp.concatenate([u_lb, jnp.array([-relax_eps1], dtype=dtype)])
     u_box = jnp.concatenate([u_ub, jnp.array([1e9], dtype=dtype)])
@@ -276,9 +276,9 @@ def rcbf_qp_linear_mats(
     g = jnp.concatenate([-u_nom, jnp.array([penalty * relax_eps2], dtype=dtype)])
 
     # Constraint: LG_i @ u + r >= -(Lf_i + alphah_i - rho_i)
-    h_rhs = h_Lf_V + h_alphah - h_rho
-    C = jnp.concatenate([h_LG_V, jnp.ones((nh, 1), dtype=dtype)], axis=-1)
-    b = h_rhs
+    h_rhs = h_Lf_V + h_alphah + h_rho
+    C = jnp.concatenate([h_LG_V, -jnp.ones((nh, 1), dtype=dtype)], axis=-1)
+    b = -h_rhs
 
     l_box = jnp.concatenate([u_lb, jnp.array([-relax_eps1], dtype=dtype)])
     u_box = jnp.concatenate([u_ub, jnp.array([1e9],         dtype=dtype)])

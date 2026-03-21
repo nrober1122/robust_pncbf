@@ -232,10 +232,10 @@ class PNCBF(struct.PyTreeNode):
                 sim = SimCtsReal(self.task, pol, tf, rollout_dt, use_obs=False, max_steps=512, use_pid=False)
                 return sim.rollout_plot(x0)
             b_keys = jr.split(key, self.train_cfg.collect_size)
-            bT_x, _, _, _ = jax.vmap(rollout_one)(b_x0, b_keys)
+            bT_x, _, _, _, _ = jax.vmap(rollout_one)(b_x0, b_keys)
         else:
             sim = SimCtsReal(self.task, self.nom_pol, tf, rollout_dt, use_obs=False, max_steps=512, use_pid=False)
-            bT_x, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0)
+            bT_x, _, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0)
         assert bT_x.shape == (self.train_cfg.collect_size, self.train_cfg.rollout_T + 1, self.task.nx)
 
         # Compute nominal control (again) here, especially if it's expensive (QP).
@@ -388,7 +388,7 @@ class PNCBF(struct.PyTreeNode):
             alpha = h_alpha
 
         # u, r, (qp_state, qp_mats) = cbf_old.min_norm_cbf(alpha, u_lb, u_ub, h_V, h_Vx, f, G, u_nom)
-        u, r, sol = min_norm_cbf(alpha, u_lb, u_ub, h_V, h_Vx, f, G, u_nom)
+        u, r, sol = min_norm_cbf(alpha, u_lb, u_ub, h_V, h_Vx, f, G, u_nom, penalty=10.0, relax_eps1=5e-1, relax_eps2=0.1)
         return self.task.chk_u(u), (r, sol)
 
     def get_cbf_control_sloped(
@@ -469,6 +469,7 @@ class PNCBF(struct.PyTreeNode):
         u_opt, r, sol = rcbf_qp_linear(
             alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
             gamma1=gamma1, gamma2=gamma2,
+            relax_eps2=0.1,
         )
         return self.task.chk_u(u_opt), (r, sol)
 
@@ -496,7 +497,7 @@ class PNCBF(struct.PyTreeNode):
         tf = self.task.dt * (T + 0.001)
         sim = SimCtsReal(self.task, pol, tf, self.task.dt, use_obs=False, use_pid=use_pid, max_steps=T + 3)
         bb_x, bb_Xs, bb_Ys = self.task.get_contour_x0(setup_idx)
-        bbT_x, _, _, _ = rep_vmap(sim.rollout_plot, rep=2)(bb_x)
+        bbT_x, _, _, _, _ = rep_vmap(sim.rollout_plot, rep=2)(bb_x)
         bbT_h = rep_vmap(self.task.h, rep=3)(bbT_x)
         return bbT_h.max(-1)
 
@@ -520,8 +521,8 @@ class PNCBF(struct.PyTreeNode):
 
         # Don't use PID stepsize controller, since the QP controller is probably super nonsmooth.
         sim = SimCtsReal(self.task, pol, tf, self.task.dt, use_obs=False, use_pid=False, max_steps=eval_rollout_T + 1)
-        bT_x_plot, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0_plot)
-        bT_x_metric, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0_metric)
+        bT_x_plot, _, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0_plot)
+        bT_x_metric, _, _, _, _ = jax_vmap(sim.rollout_plot)(b_x0_metric)
 
         def get_V_info(state):
             Vh_apply = ft.partial(self.get_Vh, params=self.Vh.params)
