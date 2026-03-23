@@ -2,7 +2,6 @@ import jax.numpy as jnp
 import functools as ft
 from pncbf.dyn.odeint import rk4
 from pncbf.dyn.dyn_types import Control, State
-from typing import List
 
 class Heron():
     NX: int = 4
@@ -12,7 +11,7 @@ class Heron():
     DES_SURGE, DES_YAWRATE = range(NU)
 
     def __init__(self, initial_position, dt: float = 0.01) -> None:
-        self.dt: float = dt
+        self._dt: float = dt
 
         self.position = initial_position # x, y, heading
         self.surge_state = jnp.zeros((2, 1))
@@ -32,6 +31,17 @@ class Heron():
         # control limits
         self.u_min = jnp.array([0, -0.6])
         self.u_max = jnp.array([2, 0.6]) 
+
+    # ------------------------------------------------------------------
+    # Required Task interface
+    # ------------------------------------------------------------------
+    @property
+    def n_Vobs(self) -> int:
+        return self.NX
+    
+    @property 
+    def dt(self) -> float:
+        return self._dt
 
     def f(self, state: State) -> State:
         self.chk_x(state)
