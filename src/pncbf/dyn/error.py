@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from jaxtyping import Float
-import ipdb
 
 from pncbf.dyn.heron import Heron
 from pncbf.dyn.dyn_types import Control, Disturb, HFloat, PolObs, State, TState, VObs
@@ -16,7 +15,7 @@ from pncbf.utils.costconstr_utils import poly4_clip_max_flat
 from pncbf.utils.none import get_or
 from pncbf.utils.jax_types import Arr, TFloat
 
-from typing import List, Tuple
+from typing import List
 
 class Error(Task):
     NX: int = 14
@@ -31,8 +30,8 @@ class Error(Task):
         self._dt = Error.DT
 
         # guidance law parameters
-        self._u_min_guidance: jnp.ndarray[float] = jnp.array([0.0, -0.6])
-        self._u_max_guidance: jnp.ndarray[float] = jnp.array([2.0, 0.6])
+        self._u_min_guidance = jnp.array([0.0, -0.6])
+        self._u_max_guidance = jnp.array([2.0, 0.6])
         self._lookahead: float = 10.0
         self._speed_control_gain: float = 30.0
         self._yaw_rate_gain: float = 0.2
@@ -53,12 +52,12 @@ class Error(Task):
         self._a: float = 10.0
         self._b: float = 5.0
         self._s: float = 1/((self._a * self._b)**2)
-        self._u_min_filter: jnp.ndarray[float] = jnp.array([0.0, -0.6])
-        self._u_max_filter: jnp.ndarray[float] = jnp.array([2.0, 0.6])
+        self._u_min_filter = jnp.array([0.0, -0.6])
+        self._u_max_filter = jnp.array([2.0, 0.6])
 
         # Heron Vehicles
-        leader_start_position: jnp.ndarray[float] = jnp.array([[0.0], [0.0], [0.0]], dtype=jnp.float32)
-        follower_start_position: jnp.ndarray[float] = jnp.array([[self._a], [0.0], [0.0]], dtype=jnp.float32)
+        leader_start_position = jnp.array([[0.0], [0.0], [0.0]], dtype=jnp.float32)
+        follower_start_position = jnp.array([[self._a], [0.0], [0.0]], dtype=jnp.float32)
         self.leader: Heron = Heron(leader_start_position)
         self.follower: Heron = Heron(follower_start_position)
 
@@ -115,7 +114,7 @@ class Error(Task):
         yaw = jnp.fmod(heading + jnp.pi/2, 2*jnp.pi)
         return yaw
     
-    def global_to_leader(self) -> Tuple[float, float]:
+    def global_to_leader(self):
         # calculate relative position using globalToLeader function from pUNREPCBF
         del_x = self.follower.position[0][0] - self.leader.position[0][0]
         del_y = self.follower.position[1][0] - self.follower.position[1][0]
@@ -127,18 +126,18 @@ class Error(Task):
         return (follower_x_leader, follower_y_leader)
     
     def f(self, state: State) -> State:
-        ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
+        # ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
 
         # extract leader relevant terms
         leader_u = self.leader.surge_state[1][0]
         leader_r = self.leader.yaw_rate_state[1][0]
 
         thetarel = -(self.follower.position[2][0] - self.leader.position[2][0]) # delta_theta = -delta_yaw
-        thetarel_dot = self.follower.x[3][0] - self.leader.x[3][0]
+        thetarel_dot = -(self.follower.x[3][0] - self.leader.x[3][0]) # thetarel_dot = -yawrel_dot
         
         follower_x_leader, follower_y_leader = self.global_to_leader()
-        control_point_x_leader = follower_x_leader + self._ml + jnp.cos(thetarel)
-        control_point_y_leader = follower_y_leader - self._ml + jnp.sin(thetarel)
+        control_point_x_leader = follower_x_leader + self._ml * jnp.cos(thetarel)
+        control_point_y_leader = follower_y_leader + self._ml * jnp.sin(thetarel)
         
         # calculate state values from leader and follower states
         ex = control_point_x_leader - self._mx
@@ -164,14 +163,15 @@ class Error(Task):
         d_dot = (ex*ex_dot + ey*ey_dot)/d
         gamma_dot = (-ey*ex_dot + ex*ey_dot)/(d**2)
         
-        ey_ddot = u_dotF*s_thetarel + uF*c_thetarel*thetarel_dot + self._ml*(r_dotC*c_thetarel - rC*s_thetarel*thetarel_dot) - leader_r*(d_dot*c_gamma - d*s_gamma*gamma_dot)
         ex_ddot = u_dotF*c_thetarel - uF*s_thetarel*thetarel_dot - self._ml*(r_dotC*s_thetarel + rC*c_thetarel*thetarel_dot) + leader_r*(d_dot*s_gamma + d*c_gamma*gamma_dot)
+        ey_ddot = u_dotF*s_thetarel + uF*c_thetarel*thetarel_dot + self._ml*(r_dotC*c_thetarel - rC*s_thetarel*thetarel_dot) - leader_r*(d_dot*c_gamma - d*s_gamma*gamma_dot)
 
-        d_ddot = ((ex_dot**2 + ex*ex_ddot + ey_dot**2 + ey*ey_ddot)*d**2 - (ex*ex_dot + ey*ey_dot)**2)/(d**3)
-        gamma_ddot = ((-ey_dot*ex_dot - ey*ex_ddot + ex_dot*ey_dot + ex*ey_ddot)*d**2 - 2*(-ey*ex_dot + ex*ey_dot)*(ex*ex_dot + ey*ey_dot))/(d**4)
+        d_ddot = ((ex_dot**2 + ex*ex_ddot + ey_dot**2 + ey*ey_ddot)*(d**2) - (ex*ex_dot + ey*ey_dot)**2)/(d**3)
+        gamma_ddot = ((-ey*ex_ddot + ex*ey_ddot)*(d**2) - 2*(-ey*ex_dot + ex*ey_dot)*(ex*ex_dot + ey*ey_dot))/(d**4)
+        # simplified from what's in the reference document
         
-        ey_dddot = (self._AuF21*uF + self._AuF22*u_dotF)*s_thetarel + 2*u_dotF*c_thetarel*thetarel_dot + uF*(c_thetarel*r_dotC - s_thetarel * thetarel_dot**2) + self._ml*((self._ArF21*rC + self._ArF22*r_dotC)*c_thetarel - 2*r_dotC*s_thetarel*thetarel_dot - rC*(c_thetarel*thetarel_dot**2 + s_thetarel*r_dotC)) - leader_r*(d_ddot*c_gamma - 2*d_dot*s_gamma*gamma_dot - d*(c_gamma*gamma_dot**2 + s_gamma*gamma_ddot))
         ex_dddot = (self._AuF21*uF + self._AuF22*u_dotF)*c_thetarel - 2*u_dotF*s_thetarel*thetarel_dot - uF*(c_thetarel*thetarel_dot**2 + s_thetarel*r_dotC) - self._ml*((self._ArF21*rC + self._ArF22*r_dotC)*s_thetarel + 2*r_dotC*c_thetarel*thetarel_dot + rC*(c_thetarel*r_dotC - s_thetarel*thetarel_dot**2)) + leader_r*(d_ddot*s_gamma + 2*d_dot*c_gamma*gamma_dot + d*(c_gamma*gamma_ddot - s_gamma*gamma_dot**2))
+        ey_dddot = (self._AuF21*uF + self._AuF22*u_dotF)*s_thetarel + 2*u_dotF*c_thetarel*thetarel_dot + uF*(c_thetarel*r_dotC - s_thetarel * thetarel_dot**2) + self._ml*((self._ArF21*rC + self._ArF22*r_dotC)*c_thetarel - 2*r_dotC*s_thetarel*thetarel_dot - rC*(c_thetarel*thetarel_dot**2 + s_thetarel*r_dotC)) - leader_r*(d_ddot*c_gamma - 2*d_dot*s_gamma*gamma_dot - d*(c_gamma*gamma_dot**2 + s_gamma*gamma_ddot))
 
         output = jnp.array([
             ex_dot, 
@@ -192,7 +192,7 @@ class Error(Task):
         return output
     
     def G(self, state: State) -> State:
-        ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
+        # ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
         thetarel = -(self.follower.position[2][0] - self.leader.position[2][0]) # delta_theta = -delta_yaw
 
         g = jnp.zeros((self.NX, self.NU))
@@ -254,12 +254,13 @@ class Error(Task):
     # States
     # ------------------------------------------------------------------
 
+    # TODO: Check with Max
     def has_eq_state(self) -> bool:
-        return True
+        return False
 
     def eq_state(self) -> State:
         # TODO: Check with Max
-        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self._uL, self._rL, self._mx, 0], dtype=np.float32)
+        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, self._mx, 0], dtype=np.float32)
 
     # TODO: Define starting conditions
     def nominal_val_state(self) -> State:

@@ -58,6 +58,7 @@ class Heron():
     def xdot(self, state: State, control: Control) -> State:
         self.chk_x(self.x)
         self.chk_u(control)
+
         control = control.clip(self.u_min, self.u_max)
         f, G = self.f(state), self.G(state)
         self.chk_x(f)
@@ -83,6 +84,8 @@ class Heron():
     def get_leader_control(self, mode: str) -> Control:
         if mode == "straight":
             return jnp.array([1.0, 0.0])
+        elif mode == "circle":
+            return jnp.array([1.0, -0.01])
         else:
             raise ValueError(f"{mode} is not a valid mode for Heron.get_leader_control(mode)")
 
