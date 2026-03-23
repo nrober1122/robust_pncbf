@@ -1,7 +1,7 @@
 # from pncbf.dyn.doubleint_wall import DoubleIntWall
-from pncbf.dyn.taxinet import Taxinet
-from pncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
-from pncbf.utils.schedules import (
+from mrncbf.dyn.taxinet import Taxinet
+from mrncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
+from mrncbf.utils.schedules import (
     Constant,
     JoinSched,
     Lin,

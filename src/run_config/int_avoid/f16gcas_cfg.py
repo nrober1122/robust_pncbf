@@ -1,6 +1,6 @@
-from pncbf.dyn.f16_gcas import F16GCAS
-from pncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
-from pncbf.utils.schedules import (
+from mrncbf.dyn.f16_gcas import F16GCAS
+from mrncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
+from mrncbf.utils.schedules import (
     Constant,
     ExpDecay,
     JoinSched,

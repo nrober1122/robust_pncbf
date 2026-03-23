@@ -1,6 +1,6 @@
-from pncbf.dyn.quadcircle import QuadCircle
-from pncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
-from pncbf.utils.schedules import (
+from mrncbf.dyn.quadcircle import QuadCircle
+from mrncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
+from mrncbf.utils.schedules import (
     Constant,
     ExpDecay,
     JoinSched,

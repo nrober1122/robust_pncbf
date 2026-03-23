@@ -9,15 +9,15 @@ from loguru import logger
 import jax
 
 import run_config.int_avoid.dubins3davoid_cfg
-from pncbf.dyn.dubins3d_avoid import Dubins3DAvoid
-from pncbf.dyn.sim_cts import SimCtsReal
-from pncbf.plotting.contour_utils import centered_norm
-from pncbf.plotting.plotstyle import PlotStyle
-from pncbf.pncbf.pncbf import PNCBF
-from pncbf.utils.ckpt_utils import get_run_path_from_ckpt, load_ckpt
-from pncbf.utils.jax_utils import jax2np, jax_default_x32, jax_jit, rep_vmap
-from pncbf.utils.logging import set_logger_format
-from pncbf.utils.path_utils import mkdir
+from mrncbf.dyn.dubins3d_avoid import Dubins3DAvoid
+from mrncbf.dyn.sim_cts import SimCtsReal
+from mrncbf.plotting.contour_utils import centered_norm
+from mrncbf.plotting.plotstyle import PlotStyle
+from mrncbf.pncbf.pncbf import PNCBF
+from mrncbf.utils.ckpt_utils import get_run_path_from_ckpt, load_ckpt
+from mrncbf.utils.jax_utils import jax2np, jax_default_x32, jax_jit, rep_vmap
+from mrncbf.utils.logging import set_logger_format
+from mrncbf.utils.path_utils import mkdir
 
 
 def main(ckpt_path: pathlib.Path):

@@ -34,11 +34,11 @@ idna==3.7
 importlib-resources==6.1.0
 ipdb==0.13.13
 ipython==8.25.0
-# jax==0.4.28
-# jaxlib==0.4.28+cuda12.cudnn89
-# jaxopt==0.8.3
+jax==0.4.28
+jaxlib==0.4.28+cuda12.cudnn89
+jaxopt==0.8.3
 -e git+ssh://git@github.com/oswinso/jaxproxqp.git@3a54f072bb6e839242e9c7da6899c548a5af9074#egg=jaxproxqp
-# jaxtyping==0.2.29
+jaxtyping==0.2.29
 jedi==0.19.1
 kconfiglib==14.1.0
 kiwisolver==1.4.5

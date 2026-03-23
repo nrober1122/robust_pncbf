@@ -7,15 +7,15 @@ import typer
 from loguru import logger
 
 import run_config.int_avoid.segway_cfg
-from pncbf.dyn.segway import Segway
-from pncbf.plotting.contour_utils import centered_norm
-from pncbf.plotting.legend_helpers import lline
-from pncbf.plotting.plotstyle import PlotStyle
-from pncbf.pncbf.pncbf import PNCBF
-from pncbf.utils.ckpt_utils import get_id_from_ckpt, get_run_path_from_ckpt, load_ckpt
-from pncbf.utils.jax_utils import jax2np, jax_jit, rep_vmap
-from pncbf.utils.logging import set_logger_format
-from pncbf.utils.path_utils import mkdir
+from mrncbf.dyn.segway import Segway
+from mrncbf.plotting.contour_utils import centered_norm
+from mrncbf.plotting.legend_helpers import lline
+from mrncbf.plotting.plotstyle import PlotStyle
+from mrncbf.pncbf.pncbf import PNCBF
+from mrncbf.utils.ckpt_utils import get_id_from_ckpt, get_run_path_from_ckpt, load_ckpt
+from mrncbf.utils.jax_utils import jax2np, jax_jit, rep_vmap
+from mrncbf.utils.logging import set_logger_format
+from mrncbf.utils.path_utils import mkdir
 
 
 def main(ckpt_path: pathlib.Path):

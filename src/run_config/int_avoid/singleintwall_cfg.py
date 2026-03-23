@@ -1,6 +1,6 @@
-from pncbf.dyn.singleint_wall import SingleIntWall
-from pncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
-from pncbf.utils.schedules import (
+from mrncbf.dyn.singleint_wall import SingleIntWall
+from mrncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
+from mrncbf.utils.schedules import (
     Constant,
     JoinSched,
     Lin,

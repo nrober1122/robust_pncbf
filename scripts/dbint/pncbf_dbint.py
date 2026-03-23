@@ -9,16 +9,16 @@ from loguru import logger
 
 import run_config.int_avoid.doubleintwall_cfg
 import wandb
-from pncbf.dyn.doubleint_wall import DoubleIntWall
-from pncbf.plotting.plot_task_summary import plot_task_summary
-from pncbf.plotting.plotter import MPPlotter
-from pncbf.pncbf.pncbf import PNCBF
-from pncbf.pncbf.stateful_dset_buffer import StatefulDsetBuffer
-from pncbf.training.ckpt_manager import get_ckpt_manager, save_create_args
-from pncbf.training.run_dir import init_wandb_and_get_run_dir
-from pncbf.utils.ckpt_utils import load_ckpt_with_step
-from pncbf.utils.jax_utils import jax2np, jax_default_x32, tree_cat
-from pncbf.utils.logging import set_logger_format
+from mrncbf.dyn.doubleint_wall import DoubleIntWall
+from mrncbf.plotting.plot_task_summary import plot_task_summary
+from mrncbf.plotting.plotter import MPPlotter
+from mrncbf.pncbf.pncbf import PNCBF
+from mrncbf.pncbf.stateful_dset_buffer import StatefulDsetBuffer
+from mrncbf.training.ckpt_manager import get_ckpt_manager, save_create_args
+from mrncbf.training.run_dir import init_wandb_and_get_run_dir
+from mrncbf.utils.ckpt_utils import load_ckpt_with_step
+from mrncbf.utils.jax_utils import jax2np, jax_default_x32, tree_cat
+from mrncbf.utils.logging import set_logger_format
 
 
 def main(

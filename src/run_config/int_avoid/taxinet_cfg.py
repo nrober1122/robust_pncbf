@@ -1,6 +1,6 @@
-from pncbf.dyn.taxinet import Taxinet
-from pncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
-from pncbf.utils.schedules import Constant, JoinSched, Lin, SchedCtsHorizon, horizon_to_lam
+from mrncbf.dyn.taxinet import Taxinet
+from mrncbf.pncbf.pncbf import PNCBFCfg, PNCBFEvalCfg, PNCBFTrainCfg
+from mrncbf.utils.schedules import Constant, JoinSched, Lin, SchedCtsHorizon, horizon_to_lam
 from run_config.loop_cfg import LoopCfg
 from run_config.run_cfg import RunCfg
 
