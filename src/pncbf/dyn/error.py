@@ -208,21 +208,21 @@ class Error(Task):
         return g
     
     def step(self, state: State, control: Control, disturb: Disturb = None) -> State:
-        leader_control: Control = self.leader.get_leader_control(self.mode)
+        leader_control: Control = self.leader.get_leader_control(self._mode)
         self.leader.step(leader_control)
         self.follower.step(control)
 
         xdot_with_u = ft.partial(self.xdot, control=control)
-        return rk4(self.dt, xdot_with_u, state)
+        return rk4(self._dt, xdot_with_u, state)
     
     def step_plot(
         self, state: State, control: Control, disturb: Disturb = None, dt: float = None) -> tuple[TState, TFloat]:
-        leader_control: Control = self.leader.get_leader_control(self.mode)
+        leader_control: Control = self.leader.get_leader_control(self._mode)
         self.leader.step(leader_control)
         self.follower.step(control)
 
         xdot_with_u = ft.partial(self.xdot, control=control)
-        dt = get_or(dt, self.dt)
+        dt = get_or(dt, self._dt)
         return tsit5(dt, 4, xdot_with_u, state), np.linspace(0, dt, num=5)
     
     # ------------------------------------------------------------------
@@ -233,7 +233,7 @@ class Error(Task):
         ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot, e_ui, e_ri, thetarel, thetarel_dot, uF, rC, d, gamma = self.chk_x(state)
 
         # Negative means unsafe (outside or on the obstacle).
-        h_obs = self._s*((self._a*self._b)**2 - (self._b * ex)**2 - (self._a * ey)**2)
+        h_obs = -self._s*((self._a*self._b)**2 - (self._b * ex)**2 - (self._a * ey)**2)
 
         # h <= 1
         hs = poly4_clip_max_flat(jnp.array([h_obs]))
@@ -332,9 +332,9 @@ class Error(Task):
         return [Task.Phase2DSetup("phase", self.plot_phase, Task.mk_get2d([self.EX, self.EY]))]
 
     def plot_phase(self, ax: plt.Axes):
-        """XY plane plot with Heron obstacle."""
+        """XY plane plot of the learned safe region."""
         PLOT_XMIN, PLOT_XMAX = -15, 15
         PLOT_YMIN, PLOT_YMAX = -15, 15
         ax.set(xlim=(PLOT_XMIN, PLOT_XMAX), ylim=(PLOT_YMIN, PLOT_YMAX))
-        ax.set(xlabel=self.x_labels[0], ylabel=self.x_labels[4])
+        ax.set(xlabel=self.x_labels[0], ylabel=self.x_labels[3])
         ax.set_aspect("equal")
