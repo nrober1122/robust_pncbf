@@ -1,4 +1,4 @@
-from typing import Callable, NamedTuple
+from typing import Callable, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +16,7 @@ from mrncbf.dyn.task import Task
 from mrncbf.networks.block import TmpNet
 from mrncbf.networks.ensemble import Ensemble, subsample_ensemble
 from mrncbf.networks.mlp import MLP
+from mrncbf.networks.temporal_residual import ResidualCorrection
 from mrncbf.networks.ncbf import MultiNormValueFn, MultiValueFn, Rescale
 from mrncbf.networks.network_utils import HidSizes, get_act_from_str
 from mrncbf.networks.optim import get_default_tx
@@ -25,7 +26,8 @@ from mrncbf.qp.min_norm_cbf import (
     min_norm_cbf, min_norm_cbf_qp_mats,
     rcbf, rcbf_qp_mats,
     rcbf_qp_linear, rcbf_qp_linear_mats,
-    compute_rcbf_gammas
+    compute_rcbf_gammas,
+    rcbf_qp_learned, rcbf_qp_learned_mats,
 )
 from mrncbf.utils.grad_utils import compute_norm, empty_grad_tx
 from mrncbf.utils.jax_types import BBFloat, BBool, BFloat, BHBool, BTHBool, FloatScalar, MetricsDict
@@ -43,6 +45,15 @@ def _resolve_alpha(h_V, alpha_safe, alpha_unsafe):
         return jnp.where(h_V < 0,
                          jnp.asarray(alpha_safe),
                          jnp.asarray(alpha_unsafe))   # (nh,)
+
+# def _resolve_alpha_local(h_V, alpha_safe, alpha_unsafe):
+#         """Same logic as _resolve_alpha in the main codebase."""
+#         if isinstance(alpha_safe, float) or jnp.asarray(alpha_safe).ndim == 0:
+#             return jnp.where(jnp.all(h_V < 0), alpha_safe, alpha_unsafe)
+#         else:
+#             return jnp.where(h_V < 0,
+#                             jnp.asarray(alpha_safe),
+#                             jnp.asarray(alpha_unsafe))
 
 @define
 class PNCBFTrainCfg:
@@ -478,6 +489,57 @@ class PNCBF(struct.PyTreeNode):
         return self.get_rcbf_qp_control_all(
             alpha_safe, alpha_unsafe, state, nnv_filter, epsilon, V_shift, num_samples, nom_pol
         )[0]
+    
+    # ── mrncbf ────────────────────────────────────────────────────────────────────
+    def get_learned_rcbf_control_all(
+        self,                          # PNCBF instance
+        alpha_safe: float,
+        alpha_unsafe: float,
+        state: State,                  # x̂ (the noisy estimate)
+        Delta_net: ResidualCorrection,
+        Delta_params,
+        epsilon: float,
+        history_seq: Optional[jnp.ndarray],  # (window_len, feat_dim) or None
+        gamma1: float | jnp.ndarray,
+        gamma2: float | jnp.ndarray,
+        R_floor: float = 0.0,
+        V_shift: float = 1e-3,
+        nom_pol=None,
+    ):
+        """
+        CBF-QP with analytical + learned robustification.
+    
+        Mirrors get_rcbf_qp_control_all but adds Δ_θ to the constraint.
+        """
+        from mrncbf.utils.none import get_or
+    
+        u_lb, u_ub = self.task.u_min, self.task.u_max
+        h_V, hx_Vx, f, G, u_nom = self._get_cbf_ingredients(state, V_shift, nom_pol)
+    
+        # Resolve alpha (safe vs unsafe region)
+        alpha = _resolve_alpha_local(h_V, alpha_safe, alpha_unsafe)
+    
+        # Per-constraint Lie derivative norms (features for Δ_θ)
+        h_LG_V = hx_Vx @ G                          # (nh, nu)
+        h_Lgh_norm = jnp.linalg.norm(h_LG_V, axis=-1)  # (nh,)
+    
+        # Evaluate learned residual
+        h_Delta = Delta_net.apply(
+            Delta_params,
+            state,          # x̂
+            h_Lgh_norm,     # (nh,)
+            h_V,            # (nh,)
+            epsilon,        # scalar
+            history_seq,    # (window_len, feat_dim) or None
+        )
+    
+        u_opt, r, sol = rcbf_qp_learned(
+            alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
+            gamma1, gamma2, h_Delta, R_floor,
+            relax_eps2=0.1,
+        )
+        return self.task.chk_u(u_opt), (r, sol, h_Delta)
+    
 
     @ft.partial(jax.jit, static_argnames=["T", "setup_idx", "use_pid"])
     def get_bb_V_nom(self, T: int = None, setup_idx: int = 0, use_pid: bool = False):

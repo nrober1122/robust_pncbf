@@ -336,3 +336,96 @@ def compute_rcbf_gammas(
     gamma1_star = gamma_vals[argmin_idx[0]].astype(jnp.float32)
     gamma2_star = gamma_vals[argmin_idx[1]].astype(jnp.float32)
     return gamma1_star, gamma2_star
+
+# ── learned rcbf ─────────────────────────────────────────────────────────────
+
+def rcbf_qp_learned_mats(
+    alpha,
+    u_lb: Control,
+    u_ub: Control,
+    h_V: HFloat,
+    hx_Vx: HState,
+    f: State,
+    G,
+    u_nom: Control,
+    gamma1: float | jnp.ndarray,
+    gamma2: float | jnp.ndarray,
+    h_Delta: jnp.ndarray,          # (nh,) learned residual
+    R_floor: float = 0.0,
+    penalty: float = 10.0,
+    relax_eps1: float = 5e-1,
+    relax_eps2: float = 5.0,
+) -> JaxProxQP.QPModel:
+    """
+    Like rcbf_qp_linear_mats, but adds a learned residual per constraint.
+ 
+    Per-constraint robustness margin:
+        h_rho_i = max(R_floor, gamma1_i * ||LG_i|| + gamma2_i^2 * ||LG_i||^2 + Delta_i)
+ 
+    When Delta_i < 0, the learned term REDUCES conservatism.
+    When Delta_i > 0, it adds conservatism beyond the analytical baseline.
+    R_floor prevents the total margin from going negative.
+    """
+    nx, nu = G.shape
+    dtype = h_V.dtype
+    h_V, hx_Vx = _check_and_promote(h_V, hx_Vx)
+    nh = h_V.shape[0]
+ 
+    h_Lf_V, h_LG_V, h_alphah = _lie_derivs(h_V, hx_Vx, f, G, alpha)
+    h_LG_norm = jnp.linalg.norm(h_LG_V, axis=-1)            # (nh,)
+    h_LG_norm2 = h_LG_norm ** 2
+ 
+    gamma1 = jnp.broadcast_to(jnp.asarray(gamma1, dtype=dtype), (nh,))
+    gamma2 = jnp.broadcast_to(jnp.asarray(gamma2, dtype=dtype), (nh,))
+ 
+    # Analytical + learned, floored at R_floor
+    h_rho_anal = gamma1 * h_LG_norm + gamma2**2 * h_LG_norm2
+    h_rho = jnp.maximum(R_floor, h_rho_anal + h_Delta)       # (nh,)
+ 
+    # Cost: 0.5 * ||u - u_nom||^2 + 0.5 * penalty * (r + eps2)^2
+    H = np.eye(nu + 1, dtype=dtype)
+    H[-1, -1] = penalty
+    g = jnp.concatenate([-u_nom, jnp.array([penalty * relax_eps2], dtype=dtype)])
+ 
+    # Constraint: LG_i @ u + r >= -(Lf_i + alphah_i + rho_i)
+    #   equivalently: [LG_i, -1] @ [u, r] >= -(Lf_i + alphah_i + rho_i)
+    h_rhs = h_Lf_V + h_alphah + h_rho
+    C = jnp.concatenate([h_LG_V, -jnp.ones((nh, 1), dtype=dtype)], axis=-1)
+    b = -h_rhs
+ 
+    l_box = jnp.concatenate([u_lb, jnp.array([-relax_eps1], dtype=dtype)])
+    u_box = jnp.concatenate([u_ub, jnp.array([1e9], dtype=dtype)])
+ 
+    return JaxProxQP.QPModel.create(H, g, C, b, l_box, u_box)
+ 
+ 
+def rcbf_qp_learned(
+    alpha,
+    u_lb: Control,
+    u_ub: Control,
+    h_V: HFloat,
+    hx_Vx: HState,
+    f: State,
+    G,
+    u_nom: Control,
+    gamma1,
+    gamma2,
+    h_Delta: jnp.ndarray,
+    R_floor: float = 0.0,
+    penalty: float = 10.0,
+    relax_eps1: float = 5e-1,
+    relax_eps2: float = 20.0,
+    settings: JaxProxQP.Settings = None,
+) -> tuple[Control, FloatScalar, QPSolution]:
+    """Solve the learned-robust CBF-QP. Returns (u_opt, r, sol)."""
+    nx, nu = G.shape
+    qp = rcbf_qp_learned_mats(
+        alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
+        gamma1, gamma2, h_Delta, R_floor,
+        penalty, relax_eps1, relax_eps2,
+    )
+    if settings is None:
+        settings = JaxProxQP.Settings.default()
+    sol = JaxProxQP(qp, settings).solve()
+    assert sol.x.shape == (nu + 1,)
+    return sol.x[:nu], sol.x[-1], sol
