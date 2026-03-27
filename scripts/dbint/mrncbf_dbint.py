@@ -83,7 +83,7 @@ class LearnedRCBFCfg:
         default_factory=lambda: [0.01, 0.05, 0.1, 0.2, 0.5]
     )
     episodes_per_noise: int = 50
-    failure_episode_length: int = 300
+    failure_episode_length: int = 10
  
     # ── Stage 3: supervised pre-training ──
     pretrain_epochs: int = 200

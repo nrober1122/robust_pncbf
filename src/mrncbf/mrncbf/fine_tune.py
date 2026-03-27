@@ -12,6 +12,7 @@ import numpy as np
 from mrncbf.qp.min_norm_cbf import rcbf_qp_learned
 from mrncbf.networks.temporal_residual import ResidualCorrection
 from mrncbf.pncbf.pncbf import _resolve_alpha as _resolve_alpha_local
+from mrncbf.mrncbf.mrncbf_utils import rk4_step
 
 class RolloutCarry(NamedTuple):
     x_true: jnp.ndarray         # (nx,)
@@ -93,10 +94,8 @@ def make_stage4_loss(
             u_safe = task.chk_u(u_opt)
  
             # 5. Step TRUE dynamics
-            f_true = task.f(x_true)
-            G_true = task.G(x_true)
-            xdot = f_true + G_true @ u_safe
-            x_true_next = x_true + task.dt * xdot
+            dynamics_fn = lambda x, u: task.f(x) + task.G(x) @ u
+            x_true_next = rk4_step(dynamics_fn, x_true, u_safe, task.dt)
  
             # 6. Cost
             h_V_true_next = Vh_apply(x_true_next) + V_shift

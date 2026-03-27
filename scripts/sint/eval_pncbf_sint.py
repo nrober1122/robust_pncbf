@@ -77,7 +77,7 @@ def main(ckpt_path: pathlib.Path):
     
     def int_pol_for_noise_scale(noise_scale):
         # alpha_unsafe = 10.0
-        alpha_safe = 1.0
+        alpha_safe = 0.5
         alpha_unsafe = alpha_safe
         x0 = x0_est + noise_scale
         # pol = ft.partial(alg.get_cbf_control_sloped, alpha_safe, alpha_unsafe, V_shift=1e-2)
