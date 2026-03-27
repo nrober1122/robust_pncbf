@@ -112,7 +112,7 @@ def main(
             plotter.mp_run.remove_finished()
             logger.info("Plotting...")
             plotter.batch_phase2d(d.bT_x_plot, f"phase/phase_{suffix}", extra_lines=V_nom_line2)
-            plotter.V_div(bb_Xs, bb_Ys, d.bbh_V.max(-1), f"V/V_{suffix}", extra_lines=V_nom_line)
+            plotter.V_div(bb_Xs, bb_Ys, d.bbh_V.max(-1), f"V/V_{suffix}", extra_lines=V_nom_line, twoslope=True)
             plotter.V_div(bb_Xs, bb_Ys, d.bbh_Vdot.max(-1), f"dV/dV_{suffix}", extra_lines=V_nom_line)
             plotter.V_div(bb_Xs, bb_Ys, bb_Vdot_disc_max, f"dV_disc/dV_disc_{suffix}", extra_lines=V_nom_line)
             logger.info("Plotting... Done!")

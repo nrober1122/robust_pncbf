@@ -1,93 +1,77 @@
 import jax.numpy as jnp
-import functools as ft
-from pncbf.dyn.odeint import rk4
 from pncbf.dyn.dyn_types import Control, State
 
+
 class Heron():
+    # Internal dynamics state layout: [surge_integral_err, surge, yaw_rate_integral_err, yaw_rate]
     NX: int = 4
+    NP: int = 3   # position state: [px, py, heading]
     NU: int = 2
 
-    SURGE, SURGE_INTEGRAL_ERROR, YAWRATE, YAWRATE_INTEGRAL_ERROR = range(NX)
+    SURGE_INTEGRAL_ERROR, SURGE, YAWRATE_INTEGRAL_ERROR, YAWRATE = range(NX)
+    X, Y, HEADING = range(NP)
     DES_SURGE, DES_YAWRATE = range(NU)
 
-    def __init__(self, initial_position, dt: float = 0.01) -> None:
+    def __init__(self, initial_position: State, dt: float = 0.01) -> None:
         self._dt: float = dt
 
-        self.position = initial_position # x, y, heading
-        self.surge_state = jnp.zeros((2, 1))
-        self.yaw_rate_state = jnp.zeros((2, 1))
+        # closed loop reference dynamics matrices
+        Au = jnp.array([[0.0, 1.0], [-1.0, -24.048562]])
+        Bu = jnp.array([[-1.0], [0.0]])
+        Ar = jnp.array([[0.0, 1.0], [-6.3246, -61.78262]])
+        Br = jnp.array([[-1.0], [0.0]])
 
-        # closed loop reference dynamics
-        self.Au = jnp.array([[0.0, 1.0], [-1.0, -24.048562]])
-        self.Bu = jnp.array([[-1.0], [0.0]])
-        self.Ar = jnp.array([[0.0, 1.0], [-6.3246, -61.78262]])
-        self.Br = jnp.array([[-1.0], [0.0]])
-
-        # stacked dynamics for single system
-        self.A = jnp.block([[self.Au, jnp.zeros((2, 2))], [jnp.zeros((2, 2)), self.Ar]])
-        self.B = jnp.block([[self.Bu, jnp.zeros((2, 1))], [jnp.zeros((2, 1)), self.Br]]) 
-        self.x = jnp.vstack((self.surge_state, self.yaw_rate_state))  
+        self.A = jnp.block([[Au, jnp.zeros((2, 2))], [jnp.zeros((2, 2)), Ar]])
+        self.B = jnp.block([[Bu, jnp.zeros((2, 1))], [jnp.zeros((2, 1)), Br]])
 
         # control limits
-        self.u_min = jnp.array([0, -0.6])
-        self.u_max = jnp.array([2, 0.6]) 
+        self.u_min = jnp.array([0.0, -0.6])
+        self.u_max = jnp.array([2.0, 0.6])
+
+        # Initial conditions — used only to build the initial full state vector in Error.
+        # After that, vehicle state lives entirely inside the Error full state vector.
+        self.initial_x        = jnp.zeros(self.NX, dtype=jnp.float32)
+        self.initial_position = initial_position
+
+    # # ------------------------------------------------------------------
+    # # Purely functional dynamics — safe inside any JAX trace
+    # # ------------------------------------------------------------------
+    # def xdot_x(self, x: State, control: Control) -> State:
+    #     """Derivative of internal dynamics state."""
+    #     control = control.clip(self.u_min, self.u_max)
+    #     return self.A @ x + self.B @ control
+
+    # @staticmethod
+    # def xdot_position(position: State, x: State) -> State:
+    #     """
+    #     Derivative of position [px, py, heading].
+    #     Driven by actual surge and yaw_rate read from internal state x,
+    #     not the commanded control.
+    #     """
+    #     surge    = x[Heron.SURGE]    # index 1
+    #     yaw_rate = x[Heron.YAWRATE]  # index 3
+    #     heading  = position[2]
+    #     return jnp.array([surge * jnp.sin(heading),
+    #                        surge * jnp.cos(heading),
+    #                        yaw_rate])
+
+    # def xdot(self, x: State, position: State, control: Control) -> tuple[State, State]:
+    #     """
+    #     Returns (dx, dposition) — time derivatives of both sub-states.
+    #     Purely functional. Safe inside jit / vmap / diffeqsolve.
+    #     """
+    #     dx        = self.xdot_x(x, control)
+    #     dposition = self.xdot_position(position, x)
+    #     return dx, dposition
 
     # ------------------------------------------------------------------
-    # Required Task interface
+    # Leader control (returns a constant — safe anywhere)
     # ------------------------------------------------------------------
-    @property
-    def n_Vobs(self) -> int:
-        return self.NX
-    
-    @property 
-    def dt(self) -> float:
-        return self._dt
-
-    def f(self, state: State) -> State:
-        self.chk_x(state)
-
-        Ax: State = self.A @ state
-        return Ax
-    
-    def G(self, state: State) -> State:
-        self.chk_x(state)
-
-        G: State = self.B
-        return G
-
-    def xdot(self, state: State, control: Control) -> State:
-        self.chk_x(self.x)
-        self.chk_u(control)
-
-        control = control.clip(self.u_min, self.u_max)
-        f, G = self.f(state), self.G(state)
-        self.chk_x(f)
-        Gu: State = G @ control
-        self.chk_x(Gu)
-        dx: State = f + Gu
-        return self.chk_x(dx)
-
-    def step(self, control: Control) -> None:
-        xdot_with_u = ft.partial(self.xdot, control=control)
-        x_new: State = rk4(self.dt, xdot_with_u, self.x)
-
-        surge: float = self.surge_state[1][0]
-        yaw_rate: float = self.yaw_rate_state[2][0]
-        heading: float = self.position[2][0]
-        position_dot = jnp.array([[surge*jnp.sin(heading)], [surge*jnp.cos(heading)], [yaw_rate]])
-        new_position = rk4(self.dt, position_dot, self.position)
-
-        # save new states
-        self.x = x_new
-        self.position = new_position
-
-    def get_leader_control(self, mode: str) -> Control:
+    @staticmethod
+    def get_leader_control(mode: str) -> Control:
         if mode == "straight":
             return jnp.array([1.0, 0.0])
         elif mode == "circle":
             return jnp.array([1.0, -0.01])
         else:
             raise ValueError(f"{mode} is not a valid mode for Heron.get_leader_control(mode)")
-
-
-

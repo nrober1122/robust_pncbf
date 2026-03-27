@@ -33,7 +33,7 @@ def main(ckpt_path: pathlib.Path):
 
     # nom_pol = task.nom_pol_osc
     # nom_pol = task.nom_pol_rng3
-    nom_pol = task.nom_pol_zero
+    nom_pol = task.nom_pol_goto
 
     CFG = run_config.int_avoid.error_cfg.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
@@ -41,10 +41,7 @@ def main(ckpt_path: pathlib.Path):
     logger.info("Loaded ckpt from {}!".format(ckpt_path))
 
     # Plot how V varies along a trajectory.
-    # x0 = np.array([-0.6, 1.7])
-    # x0 = np.array([0.5, -1.7])
-    # x0 = np.array([0.8, 0.3])
-    x0 = np.array([-1.7, 0.0, 0.0])
+    x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     T = 80
     tf = T * task.dt
     noise_scale = 0.0
@@ -56,7 +53,6 @@ def main(ckpt_path: pathlib.Path):
         jax_jit(ft.partial(sim.rollout_plot, noise_scale=noise_scale, rng_key=rng_key))(x0)
     )
 
-    # alphas = np.array([0.1, 1.0, 5.0, 10.0])
     alphas = np.array([0.001, 0.01, 0.1, 3.0])
 
     def int_pol_for_alpha(alpha_safe):

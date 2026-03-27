@@ -65,7 +65,7 @@ class SimCtsReal:
         result_dt: float,
         dt0: float = None,
         use_obs: bool = False,
-        max_steps: int = 256,
+        max_steps: int = 1024,
         use_pid: bool = True,
         solver: str = "tsit5",
     ):
