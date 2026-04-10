@@ -441,53 +441,80 @@ class PNCBF(struct.PyTreeNode):
         self,
         alpha_safe: float,
         alpha_unsafe: float,
-        state: State,
-        nnv_filter = None,              # Box from nnv_state_bounds
-        epsilon: float = 1e-4,             # Regularization for QP
+        state,
+        nnv_filter=None,
+        epsilon: float = 1e-4,
         V_shift: float = 1e-3,
         n_samples: int = 100,
-        rng_key = None,
+        rng_key=None,
         nom_pol=None,
     ):
+        """
+        R-CBF-QP with proper online gamma adaptation.
+        Same signature as original — no extra state to thread through.
+        """
         u_lb, u_ub = self.task.u_min, self.task.u_max
         h_V, hx_Vx, f, G, u_nom = self._get_cbf_ingredients(state, V_shift, nom_pol)
         alpha = _resolve_alpha(h_V, alpha_safe, alpha_unsafe)
         nom_pol = get_or(nom_pol, self.nom_pol)
-        
+    
+        # ── State bounds ─────────────────────────────────────────────────────
         if nnv_filter is None:
-            state_bounds = type('obj', (object,), {
-                'lo': state - epsilon * np.ones(state.shape),
-                'hi': state + epsilon * np.ones(state.shape)
-            })()
+            lo = state - epsilon * jnp.ones(state.shape)
+            hi = state + epsilon * jnp.ones(state.shape)
         else:
-            state_bounds = nnv_filter.state_bounds(epsilon=epsilon)
-        
-
-        # Sample states within bounds to estimate max control deviation.
+            bounds = nnv_filter.state_bounds(epsilon=epsilon)
+            lo, hi = bounds.lo, bounds.hi
+    
+        # ── Sample perturbed states ──────────────────────────────────────────
         rng_key = get_or(rng_key, jax.random.PRNGKey(0))
         x_samples = jax.random.uniform(
             rng_key,
             shape=(n_samples, self.task.nx),
-            minval=state_bounds.lo,
-            maxval=state_bounds.hi,
+            minval=lo, maxval=hi,
         )
-        u_hat = nom_pol(state)
-        u_samples = jax.vmap(nom_pol)(x_samples)
-        sigma_hat = jnp.max(jnp.linalg.norm(u_samples - u_hat, axis=-1)).astype(jnp.float32)
-
-        gamma1, gamma2 = compute_rcbf_gammas(sigma_hat)
-
+    
+        # ── CBF ingredients at each perturbed state ──────────────────────────
+        Vh_apply = ft.partial(self.get_Vh, params=self.Vh.params)
+    
+        def _ingredients_at(x_i):
+            h_i  = Vh_apply(x_i) + V_shift
+            hx_i = jax.jacobian(Vh_apply)(x_i)
+            f_i  = self.task.f(x_i)
+            G_i  = self.task.G(x_i)
+            u_i  = nom_pol(x_i)
+            return h_i, hx_i, f_i, G_i, u_i
+    
+        h_V_p, hx_Vx_p, f_p, G_p, u_nom_p = jax.vmap(_ingredients_at)(x_samples)
+    
+        # ── Optimal gammas ───────────────────────────────────────────────────
+        gamma1, gamma2 = compute_rcbf_gammas(
+            alpha=alpha,
+            u_lb=u_lb, u_ub=u_ub,
+            h_V_nom=h_V, hx_Vx_nom=hx_Vx,
+            f_nom=f, G_nom=G, u_nom_base=u_nom,
+            h_V_pert=h_V_p, hx_Vx_pert=hx_Vx_p,
+            f_pert=f_p, G_pert=G_p, u_nom_pert=u_nom_p,
+            n_grid=50, reg_weight=0.0
+        )
+    
+        # ── Solve final QP ───────────────────────────────────────────────────
         u_opt, r, sol = rcbf_qp_linear(
             alpha, u_lb, u_ub, h_V, hx_Vx, f, G, u_nom,
             gamma1=gamma1, gamma2=gamma2,
             relax_eps2=0.1,
         )
         return self.task.chk_u(u_opt), (r, sol)
-
-    def get_rcbf_qp_control(self, alpha_safe, alpha_unsafe, state, nnv_filter=None, epsilon=1e-4,
-                            V_shift=1e-3, num_samples=1000, nom_pol=None):
+    
+    
+    def get_rcbf_qp_control(
+        self, alpha_safe, alpha_unsafe, state,
+        nnv_filter=None, epsilon=1e-4,
+        V_shift=1e-3, n_samples=20, nom_pol=None,
+    ):
         return self.get_rcbf_qp_control_all(
-            alpha_safe, alpha_unsafe, state, nnv_filter, epsilon, V_shift, num_samples, nom_pol
+            alpha_safe, alpha_unsafe, state,
+            nnv_filter, epsilon, V_shift, n_samples, nom_pol=nom_pol,
         )[0]
     
     # ── mrncbf ────────────────────────────────────────────────────────────────────

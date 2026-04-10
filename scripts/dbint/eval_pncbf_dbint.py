@@ -38,7 +38,7 @@ def main(ckpt_path: pathlib.Path):
     x0 = np.array([0.8, 0.3])
     T = 80
     tf = T * task.dt
-    noise_scale = 0.1
+    noise_scale = 0.2
 
     # Original nominal policy.
     logger.info("Sim nom...")
