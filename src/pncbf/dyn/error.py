@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from jaxtyping import Float
 
-from pncbf.dyn.heron import Heron
+from pncbf.dyn.heron import Leader, Follower
 from pncbf.dyn.dyn_types import Control, Disturb, HFloat, PolObs, State, TState, VObs
 from pncbf.dyn.odeint import rk4, tsit5
 from pncbf.dyn.task import Task
@@ -22,38 +22,37 @@ class Error(Task):
     """
     Full state vector layout (NX = 26):
 
-        [ 0:12] — error states  (the only thing the model/policy ever sees)
+        [0:11] — error states  (the only thing the model/policy ever sees)
                   [ex, ex_dot, ex_ddot, ey, ey_dot, ey_ddot,
-                   e_ui, e_ri, thetarel, thetarel_dot, uF, rC]
-        [12:16] — leader internal dynamics  (Heron.NX = 4)
-                  [surge_int_err, surge, yaw_rate_int_err, yaw_rate]
-        [16:19] — leader position            (Heron.NP = 3)
+                   e_ui, e_ri, thetarel, uF, rC]
+        [11:13] — leader internal dynamics   (2)
+                  [surge, yaw_rate]
+        [13:16] — leader position            (3)
                   [px, py, heading]
-        [19:23] — follower internal dynamics (Heron.NX = 4)
-        [23:26] — follower position          (Heron.NP = 3)
+        [16:19] — follower position          (3)
+                  [px, py, heading]
     """
 
     # ------------------------------------------------------------------
     # Dimension constants
     # ------------------------------------------------------------------
-    NX_ERR:  int = 12   # error states — what the model sees
-    NX_VEH:  int = 14   # vehicle states  (4 + 3 + 4 + 3)
-    NX:      int = NX_ERR + NX_VEH   # 26  — full integrated state
+    NX_ERR: int = 11   # error states
+    NX_VEH: int = 8   # vehicle states  (2 + 3 + 3)
+    NX: int = NX_ERR + NX_VEH 
 
     NU: int = 2
 
     # Slices into the full 26-dim state vector
-    _SL_ERR       = slice(0,  12)
-    _SL_LEADER_X  = slice(12, 16)
-    _SL_LEADER_P  = slice(16, 19)
-    _SL_follower_X  = slice(19, 23)
-    _SL_follower_P  = slice(23, 26)
+    _SL_ERR = slice(0,  11)
+    _SL_LEADER_X = slice(11, 13)
+    _SL_LEADER_P = slice(13, 16)
+    _SL_follower_P = slice(16, 19)
 
     # Error-state indices (within the first 12 elements)
-    EX, EXDOT, EXDDOT, EY, EYDOT, EYDDOT, EUI, EUR, THETAREL, THETARELDOT, UF, RC = range(NX_ERR)
+    EX, EXDOT, EXDDOT, EY, EYDOT, EYDDOT, EUI, ERI, THETAREL, UF, RC, UL, RL, XL, YL, THETAL, XF, YF, THETAF = range(NX)
     VELREF, YAWREF = range(NU)
 
-    DT = 0.05
+    DT = 0.01
 
     def __init__(self) -> None:
         self._dt = Error.DT
@@ -84,13 +83,9 @@ class Error(Task):
         self._u_min_filter = jnp.array([0.0, -0.6])
         self._u_max_filter = jnp.array([2.0, 0.6])
 
-        # Heron vehicle objects — used only for their dynamics matrices and
-        # to supply initial conditions.  Vehicle state lives in the full
-        # state vector after initialisation; these objects are never mutated.
-        leader_start_position   = jnp.array([0.0,       0.0, 0.0], dtype=jnp.float32)
-        follower_start_position = jnp.array([self._a,   0.0, 0.0], dtype=jnp.float32)
-        self.leader:   Heron = Heron(leader_start_position)
-        self.follower: Heron = Heron(follower_start_position)
+        # Heron vehicle objects — used only for their dynamics matrices 
+        self.leader: Leader = Leader()
+        self.follower: Follower = Follower()
 
         # helper values
         self.DEG2RAD = jnp.pi / 180.0
@@ -100,28 +95,12 @@ class Error(Task):
     # State vector helpers
     # ------------------------------------------------------------------
     def _unpack(self, state: State):
-        """Split full 26-dim state into its five named sub-arrays."""
+        """Split full state into its sub-arrays."""
         err_state = state[self._SL_ERR]
         leader_x  = state[self._SL_LEADER_X]
         leader_p  = state[self._SL_LEADER_P]
-        follower_x  = state[self._SL_follower_X]
         follower_p  = state[self._SL_follower_P]
-        return err_state, leader_x, leader_p, follower_x, follower_p
-
-    def initial_state(self, err_state: State = None) -> State:
-        """
-        Build the initial full 26-dim state vector.
-        err_state defaults to nominal_val_state() if not provided.
-        """
-        if err_state is None:
-            err_state = self.nominal_val_state()
-        return jnp.concatenate([
-            jnp.asarray(err_state,                        dtype=jnp.float32),
-            self.leader.initial_x,
-            self.leader.initial_position,
-            self.follower.initial_x,
-            self.follower.initial_position,
-        ])
+        return err_state, leader_x, leader_p, follower_p
 
     # ------------------------------------------------------------------
     # Required Task interface
@@ -129,7 +108,6 @@ class Error(Task):
     @property
     def n_Vobs(self) -> int:
         return self.NX
-        # return self.NX_ERR   # model sees only error states
 
     @property
     def dt(self) -> float:
@@ -137,7 +115,7 @@ class Error(Task):
 
     @property
     def nx(self) -> int:
-        return self.NX        # full 26-dim state for the integrator
+        return self.NX 
 
     @property
     def x_labels(self) -> List[str]:
@@ -145,15 +123,13 @@ class Error(Task):
         return [
             r"$e_x$", r"$\dot{e}_x$", r"$\ddot{e}_x$",
             r"$e_y$", r"$\dot{e}_y$", r"$\ddot{e}_y$",
-            r"$e_{u_I}^F$", r"$e_{r_I}^F$",
-            r"$\theta_{\text{rel}}$", r"$\dot{\theta}_{\text{rel}}$",
+            r"$e_{u_I}$", r"$e_{r_I}$",
+            r"$\theta_{\text{rel}}$",
             r"$u^F$", r"$r^C$",
             # leader internal
-            r"$e^L_{u_I}$", r"$u^L$", r"$e^L_{r_I}$", r"$r^L$",
+            r"$u^L$", r"$r^L$",
             # leader position
             r"$x^L$", r"$y^L$", r"$\psi^L$",
-            # follower internal
-            r"$e^F_{u_I}$", r"$u^F$", r"$e^F_{r_I}$", r"$r^F$",
             # follower position
             r"$x^F$", r"$y^F$", r"$\psi^F$",
         ]
@@ -179,7 +155,7 @@ class Error(Task):
         return 5.0
 
     # ------------------------------------------------------------------
-    # Observations — this is the firewall between full state and model
+    # Observations
     # ------------------------------------------------------------------
     def get_obs(self, state: State) -> tuple[VObs, PolObs]:
         """
@@ -194,60 +170,51 @@ class Error(Task):
     # Dynamics helper
     # ------------------------------------------------------------------
     def _global_to_leader(self, leader_p: State, follower_p: State) -> tuple:
-        """Purely functional frame transform. Safe inside any JAX trace."""
-        del_x = follower_p[self.follower.X] - leader_p[self.leader.X]
-        del_y = follower_p[self.follower.Y] - leader_p[self.follower.Y]
+        """Purely functional frame transform."""
+        del_x = follower_p[Follower.X] - leader_p[Leader.X]
+        del_y = follower_p[Follower.Y] - leader_p[Leader.Y]
 
-        heading_rad = leader_p[2] * self.DEG2RAD
-        fx_leader =  del_x * jnp.cos(heading_rad) - del_y * jnp.sin(heading_rad)
-        fy_leader =  del_x * jnp.sin(heading_rad) + del_y * jnp.cos(heading_rad)
+        heading_rad = leader_p[Leader.THETA]
+        fx_leader = del_x * jnp.sin(heading_rad) - del_y * jnp.cos(heading_rad)
+        fy_leader = del_x * jnp.cos(heading_rad) + del_y * jnp.sin(heading_rad)
         return fx_leader, fy_leader
 
     # -------------------------------------------------------------------------------------
-    # Error-state drift  f_err(err, leader_x, leader_p, follower_x, follower_p)
+    # Error-state drift  f_err(err, leader_x, leader_p, follower_p)
     # -------------------------------------------------------------------------------------
-    def _f_err(self, err_state: State,
-               leader_x: State, leader_p: State, follower_x: State,
-               follower_p: State) -> State:
+    def _f_err(self, err_state: State, leader_x: State, leader_p: State, follower_p: State) -> State:
         """
-        Drift vector for the 12 error states.
-        All arguments are explicit — no reads from self.leader / self.follower.
+        Drift vector for the error states.
         """
-        leader_u = leader_x[Heron.SURGE]    # index 1
-        leader_r = leader_x[Heron.YAWRATE]  # index 3
+        leader_u = leader_x[Leader.SURGE]
+        leader_r = leader_x[Leader.YAWRATE]  
 
-        leader_heading   = leader_p[self.leader.HEADING]
-        follower_heading = follower_p[self.follower.HEADING]
+        ex = err_state[Error.EX]
+        ey = err_state[Error.EY]
+        e_ui = err_state[Error.EUI]
+        e_ri = err_state[Error.ERI]
+        uF = err_state[Error.UF]
+        rC = err_state[Error.RC] 
 
-        thetarel     = -(follower_heading - leader_heading)
-        thetarel_dot = -(follower_x[Heron.YAWRATE] - leader_x[Heron.YAWRATE])
+        thetarel = err_state[Error.THETAREL]
+        thetarel_dot = rC - leader_r
 
-        fx_leader, fy_leader = self._global_to_leader(leader_p, follower_p)
-
-        control_point_x = fx_leader + self._ml * jnp.cos(thetarel)
-        control_point_y = fy_leader + self._ml * jnp.sin(thetarel)
-
-        ex   = control_point_x - self._mx
-        ey   = control_point_y - self._my
-        e_ui = follower_x[Heron.SURGE_INTEGRAL_ERROR]    # index 0
-        e_ri = follower_x[Heron.YAWRATE_INTEGRAL_ERROR]  # index 2
-        uF   = follower_x[Heron.SURGE]                   # index 1
-        rC   = follower_x[Heron.YAWRATE]                 # index 3
-
-        d     = jnp.sqrt(control_point_x ** 2 + control_point_y ** 2)
+        d = jnp.sqrt(ex**2 + ey**2 + 1e-6)
         gamma = jnp.arctan2(ex, ey)
 
         u_dotF = self._AuF21 * e_ui + self._AuF22 * uF
         r_dotC = self._ArF21 * e_ri + self._ArF22 * rC
 
-        s_tr = jnp.sin(thetarel);  c_tr = jnp.cos(thetarel)
-        s_g  = jnp.sin(gamma);     c_g  = jnp.cos(gamma)
+        s_tr = jnp.sin(thetarel)
+        c_tr = jnp.cos(thetarel)
+        s_g = jnp.sin(gamma)
+        c_g = jnp.cos(gamma)
 
         ex_dot = uF * c_tr - self._ml * rC * s_tr + leader_r * (self._my + d * s_g)
         ey_dot = uF * s_tr + self._ml * rC * c_tr - leader_r * (self._mx + d * c_g) - leader_u
 
-        d_dot     = (ex * ex_dot + ey * ey_dot) / d
-        gamma_dot = (-ey * ex_dot + ex * ey_dot) / d ** 2
+        d_dot = (ex * ex_dot + ey * ey_dot) / d
+        gamma_dot = (-ey * ex_dot + ex * ey_dot) / (d ** 2)
 
         ex_ddot = (u_dotF * c_tr - uF * s_tr * thetarel_dot
                    - self._ml * (r_dotC * s_tr + rC * c_tr * thetarel_dot)
@@ -257,9 +224,9 @@ class Error(Task):
                    - leader_r * (d_dot * c_g - d * s_g * gamma_dot))
 
         d_ddot = (((ex_dot**2 + ex*ex_ddot + ey_dot**2 + ey*ey_ddot) * d**2)
-                  - (ex*ex_dot + ey*ey_dot)**2) / d**3
+                  - (ex*ex_dot + ey*ey_dot)**2) / (d**3)
         gamma_ddot = (((-ey*ex_ddot + ex*ey_ddot) * d**2)
-                      - 2 * (-ey*ex_dot + ex*ey_dot) * (ex*ex_dot + ey*ey_dot)) / d**4
+                      - 2 * (-ey*ex_dot + ex*ey_dot) * (ex*ex_dot + ey*ey_dot)) / (d**4)
 
         ex_dddot = ((self._AuF21*uF + self._AuF22*u_dotF) * c_tr
                     - 2*u_dotF*s_tr*thetarel_dot
@@ -285,22 +252,19 @@ class Error(Task):
             ey_dot,
             ey_ddot,
             ey_dddot,
-            uF,        # f component of e_ui
-            rC,        # f component of e_ri
+            uF, # \dot{e}_ui = uF - u^F_cmd. 
+            rC, # \dot{e}_ri = rC - r^C_cmd.
             thetarel_dot,
-            r_dotC,    # thetarel_ddot (excludes leader yaw acceleration)
             u_dotF,
             r_dotC,
         ])
 
-    def _G_err(self, leader_p: State, follower_p: State) -> State:
+    def _G_err(self, err_state: State) -> State:
         """
-        Input matrix for the 12 error states.
-        Shape: (NX_ERR, NU) = (12, 2).
+        Input matrix for the 11 error states.
+        Shape: (NX_ERR, NU) = (11, 2).
         """
-        leader_heading   = leader_p[2]
-        follower_heading = follower_p[2]
-        thetarel = -(follower_heading - leader_heading)
+        thetarel = err_state[Error.THETAREL]
 
         g = jnp.zeros((self.NX_ERR, self.NU))
         g = g.at[2, 0].set(-self._AuF21 * jnp.cos(thetarel))
@@ -312,48 +276,46 @@ class Error(Task):
         return g
     
     def f(self, state: State) -> State:
-        err_state, leader_x, leader_p, follower_x, follower_p = self._unpack(state)
+        err_state, leader_x, leader_p, follower_p = self._unpack(state)
 
-        leader_surge = leader_x[self.leader.SURGE]
-        leader_yawrate = leader_x[self.leader.YAWRATE]
-        leader_heading = leader_p[self.leader.HEADING]
+        leader_surge = leader_x[Leader.SURGE]
+        leader_yawrate = leader_x[Leader.YAWRATE]
+        leader_theta = leader_p[Leader.THETA]
 
-        follower_surge = follower_x[self.follower.SURGE]
-        follower_yawrate = follower_x[self.follower.YAWRATE]
-        follower_heading = follower_p[self.follower.HEADING]
+        follower_surge = err_state[Error.UF]
+        follower_yawrate = err_state[Error.RC]
+        follower_theta = follower_p[Follower.THETA]
 
-        leader_control = self.leader.get_leader_control(self._mode)
+        leader_control = Leader.get_leader_control(self._mode)
 
-        f_err = self._f_err(err_state, leader_x, leader_p, follower_x, follower_p)
-        f_leader_x = self.leader.A @ leader_x + self.leader.B @ leader_control # contains Bu term
-        f_leader_p = jnp.array([leader_surge * jnp.sin(leader_heading),
-                                leader_surge * jnp.cos(leader_heading),
+        f_err = self._f_err(err_state, leader_x, leader_p, follower_p)
+        f_leader_x = Leader.A @ leader_x + Leader.B @ leader_control # contains Bu term
+        f_leader_p = jnp.array([leader_surge * jnp.cos(leader_theta),
+                                leader_surge * jnp.sin(leader_theta),
                                 leader_yawrate])
-        f_follower_x = self.follower.A @ follower_x # Bu term in G function
-        f_follower_p = jnp.array([follower_surge * jnp.sin(follower_heading),
-                                follower_surge * jnp.cos(follower_heading),
-                                follower_yawrate])
-        f = jnp.concatenate([f_err, f_leader_x, f_leader_p, f_follower_x, f_follower_p])
+        f_follower_p = jnp.array([follower_surge * jnp.cos(follower_theta),
+                                  follower_surge * jnp.sin(follower_theta),
+                                  follower_yawrate])
+        f = jnp.concatenate([f_err, f_leader_x, f_leader_p, f_follower_p])
         return f
     
     def G(self, state: State) -> State:
-        err_state, leader_x, leader_p, follower_x, follower_p = self._unpack(state)
+        err_state, leader_x, leader_p, follower_p = self._unpack(state)
 
-        g_err = self._G_err(leader_p, follower_p)
-        g_leader_x = jnp.zeros((4, 2), dtype=jnp.float32) # absorbed into f function
-        g_leader_p = jnp.zeros((3, 2), dtype=jnp.float32) # absorbed into f function
-        g_follower_x = self.follower.B
-        g_follower_p = jnp.zeros((3, 2), dtype=jnp.float32) # absorbed into f function
-        g = jnp.vstack([g_err, g_leader_x, g_leader_p, g_follower_x, g_follower_p])
+        g_err = self._G_err(err_state)
+        g_leader_x = jnp.zeros((Leader.NX, 2), dtype=jnp.float32) # absorbed into f function
+        g_leader_p = jnp.zeros((Leader.NP, 2), dtype=jnp.float32) # absorbed into f function
+        g_follower_p = jnp.zeros((Follower.NP, 2), dtype=jnp.float32) # absorbed into f function
+        g = jnp.vstack([g_err, g_leader_x, g_leader_p, g_follower_p])
         
         return g
     
     # ------------------------------------------------------------------
-    # xdot — the function diffeqsolve calls; integrates all 26 dims
+    # xdot — the function diffeqsolve calls; integrates full state
     # ------------------------------------------------------------------
     def xdot(self, state: State, control: Control) -> State:
         """
-        Full 26-dim time derivative.
+        Full dimensional time derivative.
         Purely functional — safe inside jit / vmap / diffeqsolve.
 
         Layout of returned vector mirrors the state vector layout described
@@ -373,8 +335,8 @@ class Error(Task):
     # Safety constraint h 
     # ------------------------------------------------------------------
     def h_components(self, state: State) -> HFloat:
-        ex = state[self.EX]
-        ey = state[self.EY]
+        ex = state[Error.EX]
+        ey = state[Error.EY]
 
         h_obs = -self._s * ((self._a * self._b)**2
                             - (self._b * ex)**2
@@ -406,20 +368,18 @@ class Error(Task):
         return False
 
     def eq_state(self) -> State:
-        return self.initial_state(
-            np.zeros(self.NX_ERR, dtype=np.float32))
+        return np.zeros(self.NX, dtype=np.float32)
 
     def nominal_val_state(self) -> State:
-        """Returns the full 26-dim state."""
-        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                         0, 0, 0, 0, 
-                         0, 0, 0, 
-                         0, 0, 0, 0, 
-                         self._ml, 0, 0],
+        """Returns the full state."""
+        return np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                         0, 0, 
+                         0, 0, np.pi/2, 
+                         self._mx, 0, np.pi/2],
                         dtype=np.float32)
 
     def train_bounds(self) -> Float[Arr, "2 nx"]:
-        """Bounds over the full 26-dim state vector."""
+        """Bounds over the full state vector."""
         err_bounds = np.array([
             (-15,  15),          # ex
             ( -2,   2),          # ex_dot
@@ -430,23 +390,16 @@ class Error(Task):
             (-60,  60),          # eui
             (-40,  40),          # eri
             (-np.pi, np.pi),     # thetarel
-            (-1.5,  1.5),        # thetarel_dot
             (  0,   4),          # uF
             ( -1,   1),          # rC
         ], dtype=np.float32)
 
         veh_bounds = np.array([
-            (-60, 60),   # leader surge_int_err
             (  0,  4),   # leader surge
-            (-40, 40),   # leader yaw_rate_int_err
             ( -1,  1),   # leader yaw_rate
             (-100, 100), # leader px
             (-100, 100), # leader py
             (-np.pi, np.pi),  # leader heading
-            (-60, 60),   # follower surge_int_err
-            (  0,  4),   # follower surge
-            (-40, 40),   # follower yaw_rate_int_err
-            ( -1,  1),   # follower yaw_rate
             (-100, 100), # follower px
             (-100, 100), # follower py
             (-np.pi, np.pi),  # follower heading
@@ -459,18 +412,18 @@ class Error(Task):
         return self.train_bounds()
 
     # ------------------------------------------------------------------
-    # Nominal policy  (reads from state vector — no self.leader access)
+    # Nominal policy
     # ------------------------------------------------------------------
     def nom_pol_goto(self, state: State, goal: State = None) -> Control:
         """
         Guidance law. Reads leader/follower state from the full state vector —
         never from self.leader or self.follower, so safe inside a JAX trace.
         """
-        _, leader_x, leader_p, follower_x, follower_p = self._unpack(state)
+        _, leader_x, leader_p, follower_p = self._unpack(state)
 
-        leader_heading = leader_p[self.leader.HEADING]
-        leader_surge   = leader_x[Heron.SURGE]
-        follower_heading = follower_p[self.follower.HEADING]
+        leader_theta = leader_p[Leader.THETA]
+        leader_surge   = leader_x[Leader.SURGE]
+        follower_theta = follower_p[Follower.THETA]
 
         fx_leader, fy_leader = self._global_to_leader(leader_p, follower_p)
 
@@ -485,12 +438,12 @@ class Error(Task):
                                                     + self._speed_control_gain**2)))
         desired_speed = jnp.clip(guidance_speed, min_speed, max_speed)
 
-        chiR          = jnp.arctan2(-cross_track_error, self._lookahead)
-        desired_heading  = leader_heading + chiR * self.RAD2DEG
+        chiR = jnp.arctan2(-cross_track_error, self._lookahead)
+        desired_theta = leader_theta - chiR # negative since we are using theta instead of heading
 
         # now convert to a delta theta
-        delta_theta = -(follower_heading - desired_heading)
-        desired_yaw_rate = delta_theta * self._heading_rate_gain # does not include filter from pTrajectTranslate
+        delta_theta = follower_theta - desired_theta
+        desired_yaw_rate = -delta_theta * self._heading_rate_gain # does not include filter from pTrajectTranslate. Also negative for correct sign
 
         return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
 
@@ -515,4 +468,11 @@ class Error(Task):
         PLOT_YMIN, PLOT_YMAX = -15, 15
         ax.set(xlim=(PLOT_XMIN, PLOT_XMAX), ylim=(PLOT_YMIN, PLOT_YMAX))
         ax.set(xlabel=self.x_labels[self.EX], ylabel=self.x_labels[self.EY])
+        ax.set_aspect("equal")
+
+    def plot_traj(self, ax: plt.Axes):
+        PLOT_XMIN, PLOT_XMAX = -2, 12
+        PLOT_YMIN, PLOT_YMAX = -2, 12
+        ax.set(xlim=(PLOT_XMIN, PLOT_XMAX), ylim=(PLOT_YMIN, PLOT_YMAX))
+        ax.set(xlabel="X", ylabel="Y")
         ax.set_aspect("equal")

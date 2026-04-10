@@ -31,9 +31,8 @@ def main(ckpt_path: pathlib.Path):
 
     task = Error()
 
-    # nom_pol = task.nom_pol_osc
-    # nom_pol = task.nom_pol_rng3
     nom_pol = task.nom_pol_goto
+    # nom_pol = task.nom_pol_zero
 
     CFG = run_config.int_avoid.error_cfg.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
@@ -41,14 +40,18 @@ def main(ckpt_path: pathlib.Path):
     logger.info("Loaded ckpt from {}!".format(ckpt_path))
 
     # Plot how V varies along a trajectory.
-    x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    T = 80
+    x0 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, # error state
+                         0, 0,                      # simplified leader state
+                         0, 0, np.pi/2,             # leader position
+                         task._mx, 0, np.pi/2],     # follower position
+                         dtype=np.float32)
+    T = 4000
     tf = T * task.dt
     noise_scale = 0.0
 
     # Original nominal policy.
     logger.info("Sim nom...")
-    sim = SimCtsReal(task, nom_pol, tf, task.dt, use_pid=True, max_steps=2048)
+    sim = SimCtsReal(task, nom_pol, tf, task.dt, use_pid=True, max_steps=5000)
     T_x_nom, T_t_nom, _, T_x_nom_noisy = jax2np(
         jax_jit(ft.partial(sim.rollout_plot, noise_scale=noise_scale, rng_key=rng_key))(x0)
     )
@@ -58,7 +61,7 @@ def main(ckpt_path: pathlib.Path):
     def int_pol_for_alpha(alpha_safe):
         alpha_unsafe = 10.0
         pol = ft.partial(alg.get_cbf_control_sloped, alpha_safe, alpha_unsafe, V_shift=1e-2)
-        sim = SimCtsReal(task, pol, tf, 0.5 * task.dt, use_obs=False, use_pid=False, max_steps=512)
+        sim = SimCtsReal(task, pol, tf, 0.5 * task.dt, use_obs=False, use_pid=False, max_steps=10000)
         T_x, T_t, _, T_x_noisy = sim.rollout_plot(x0, noise_scale=noise_scale, rng_key=rng_key)
         return T_x, T_t, T_x_noisy
 
@@ -84,17 +87,17 @@ def main(ckpt_path: pathlib.Path):
     h_labels = task.h_labels
 
     fig, ax = plt.subplots(layout="constrained")
-    ax.plot(T_x_nom[:, 0], T_x_nom[:, 1], color="C3", ls="--", label="Nominal")
+    ax.plot(T_x_nom[:, 0], T_x_nom[:, 3], color="C3", ls="--", label="Nominal")
     if T_x_nom_noisy is not None:
-        ax.plot(T_x_nom_noisy[:, 0], T_x_nom_noisy[:, 1], color="C3", ls=":", alpha=0.6, label="Nominal (noisy)")
+        ax.plot(T_x_nom_noisy[:, 0], T_x_nom_noisy[:, 3], color="C3", ls=":", alpha=0.6, label="Nominal (noisy)")
     for ii, alpha in enumerate(alphas):
-        ax.plot(bT_x[ii, :, 0], bT_x[ii, :, 1], color=f"C{ii}", lw=0.5, ls="--", label=f"QP ({alpha})", zorder=100)
+        ax.plot(bT_x[ii, :, 0], bT_x[ii, :, 3], color=f"C{ii}", lw=0.5, ls="--", label=f"QP ({alpha})", zorder=100)
         if bT_x_noisy[ii] is not None:
-            ax.plot(bT_x_noisy[ii, :, 0], bT_x_noisy[ii, :, 1], color=f"C{ii}", lw=0.5, ls=":", alpha=0.6)
+            ax.plot(bT_x_noisy[ii, :, 0], bT_x_noisy[ii, :, 3], color=f"C{ii}", lw=0.5, ls=":", alpha=0.6)
     ax.contour(bb_Xs, bb_Ys, bb_Vh, levels=[0.0], colors=[PlotStyle.ZeroColor], alpha=0.6, linewidths=1.0)
     task.plot_phase(ax)
     ax.legend()
-    fig.savefig(plot_dir / "eval_phase.pdf")
+    fig.savefig(plot_dir / "eval_phase.png")
     plt.close(fig)
 
     norm = centered_norm(bbh_Vh.min(), bbh_Vh.max())
@@ -112,8 +115,109 @@ def main(ckpt_path: pathlib.Path):
         cbar.add_lines(cs1)
         task.plot_phase(ax)
         ax.set_title(h_labels[ii])
-    fig.savefig(plot_dir / "eval_Vh.pdf")
+    fig.savefig(plot_dir / "eval_Vh.png")
     plt.close(fig)
+
+    # plot nominal BEV trajectories
+    fig, ax = plt.subplots()
+    ax.plot(T_x_nom[:, 13], T_x_nom[:, 14], color=f"C{1}", label=f"Leader ({alphas[-1]})")
+    ax.plot(T_x_nom[:, 16], T_x_nom[:, 17], color=f"C{2}", label=f"Follower ({alphas[-1]})")
+    ax.set(xlabel="X", ylabel="Y")
+    ax.set_aspect("equal")
+    ax.legend()
+    fig.savefig(plot_dir / "traj_nom.png")
+    plt.close(fig)
+
+
+    # plot leader and follower trajectories BEV trajectories
+    fig, ax = plt.subplots()
+    ax.plot(bT_x[-1, :, 13], bT_x[-1, :, 14], color=f"C{1}", label=f"Leader ({alphas[-1]})")
+    ax.plot(bT_x[-1, :, 16], bT_x[-1, :, 17], color=f"C{2}", label=f"Follower ({alphas[-1]})")
+    ax.set(xlabel="X", ylabel="Y")
+    ax.set_aspect("equal")
+    ax.legend()
+    fig.savefig(plot_dir / "traj_policy.png")
+    plt.close(fig)
+
+    # plot leader x, y, theta
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 13].size), bT_x[-1, :, 13], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 14].size), bT_x[-1, :, 14], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 15].size), bT_x[-1, :, 15], color=f"C{1}")
+    axes[0].set_ylabel("X")
+    axes[1].set_ylabel("Y")
+    axes[2].set_ylabel("THETA")
+    plt.tight_layout()
+    fig.suptitle("Leader Position")
+    fig.savefig(plot_dir / "xytheta_leader.png")
+
+    # plot follower x, y, theta
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 16].size), bT_x[-1, :, 16], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 17].size), bT_x[-1, :, 17], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 18].size), bT_x[-1, :, 18], color=f"C{1}")
+    axes[0].set_ylabel("X")
+    axes[1].set_ylabel("Y")
+    axes[2].set_ylabel("THETA")
+    plt.tight_layout()
+    fig.suptitle("Follower Position")
+    fig.savefig(plot_dir / "xytheta_follower.png")
+
+
+    # plot EX, EY, THETAREL
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 0].size), bT_x[-1, :, 0], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 3].size), bT_x[-1, :, 3], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 8].size), bT_x[-1, :, 8], color=f"C{1}")
+    axes[0].set_ylabel("EX")
+    axes[1].set_ylabel("EY")
+    axes[2].set_ylabel("THETAREL")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ex_ey_thetarel.png")
+
+    # plot leader surge and yaw states
+    fig, axes = plt.subplots(2, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 11].size), bT_x[-1, :, 11], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 12].size), bT_x[-1, :, 12], color=f"C{1}")
+    axes[0].set_ylabel("SURGE")
+    axes[1].set_ylabel("YAWRATE")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "leader_surge_yaw.png")
+
+    # plot follower surge and yaw states
+    fig, axes = plt.subplots(4, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 9].size), bT_x[-1, :, 9], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 6].size), bT_x[-1, :, 6], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 10].size), bT_x[-1, :, 10], color=f"C{1}")
+    axes[3].plot(np.arange(bT_x[-1, :, 7].size), bT_x[-1, :, 7], color=f"C{1}")
+    axes[0].set_ylabel("SURGE")
+    axes[1].set_ylabel("EU")
+    axes[2].set_ylabel("YAWRATE")
+    axes[3].set_ylabel("ER")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "follower_surge_yaw.png")
+
+    # ex and derivatives plots
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 0].size), bT_x[-1, :, 0], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 1].size), bT_x[-1, :, 1], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 2].size), bT_x[-1, :, 2], color=f"C{1}")
+    axes[0].set_ylabel("EX")
+    axes[1].set_ylabel("EX_DOT")
+    axes[2].set_ylabel("EX_DDOT")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ex_ders.png")
+
+    # ey and derivatives plot
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(bT_x[-1, :, 3].size), bT_x[-1, :, 3], color=f"C{1}")
+    axes[1].plot(np.arange(bT_x[-1, :, 4].size), bT_x[-1, :, 4], color=f"C{1}")
+    axes[2].plot(np.arange(bT_x[-1, :, 5].size), bT_x[-1, :, 5], color=f"C{1}")
+    axes[0].set_ylabel("EY")
+    axes[1].set_ylabel("EX_DOT")
+    axes[2].set_ylabel("EY_DDOT")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ey_ders.png")
 
 
 if __name__ == "__main__":
