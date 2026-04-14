@@ -19,6 +19,103 @@ from pncbf.utils.jax_utils import jax2np, jax_default_x32, jax_jit, rep_vmap
 from pncbf.utils.logging import set_logger_format
 from pncbf.utils.path_utils import mkdir
 
+def make_plots(plot_dir, state_history):
+        # plot leader and follower trajectories BEV trajectories
+    fig, ax = plt.subplots()
+    ax.plot(state_history[:, 13], state_history[:, 14], color=f"C{1}", label=f"Leader")
+    ax.plot(state_history[:, 16], state_history[:, 17], color=f"C{2}", label=f"Follower")
+    ax.set(xlabel="X", ylabel="Y")
+    ax.set_aspect("equal")
+    ax.legend()
+    fig.suptitle("Leader and Follower PNCBF BEV")
+    fig.savefig(plot_dir / "traj_policy.png")
+    plt.close(fig)
+
+    # plot leader x, y, theta
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(state_history[:, 13].size), state_history[:, 13], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 14].size), state_history[:, 14], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 15].size), state_history[:, 15], color=f"C{1}")
+    axes[0].set_ylabel("X")
+    axes[1].set_ylabel("Y")
+    axes[2].set_ylabel("THETA")
+    plt.tight_layout()
+    fig.suptitle("Leader Position")
+    fig.savefig(plot_dir / "xytheta_leader.png")
+
+    # plot follower x, y, theta
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(state_history[:, 16].size), state_history[:, 16], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 17].size), state_history[:, 17], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 18].size), state_history[:, 18], color=f"C{1}")
+    axes[0].set_ylabel("X")
+    axes[1].set_ylabel("Y")
+    axes[2].set_ylabel("THETA")
+    plt.tight_layout()
+    fig.suptitle("Follower Position")
+    fig.savefig(plot_dir / "xytheta_follower.png")
+
+
+    # plot EX, EY, THETAREL
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(state_history[:, 0].size), state_history[:, 0], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 3].size), state_history[:, 3], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 8].size), state_history[:, 8], color=f"C{1}")
+    axes[0].set_ylabel("EX")
+    axes[1].set_ylabel("EY")
+    axes[2].set_ylabel("THETAREL")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ex_ey_thetarel.png")
+
+    # plot leader surge and yaw states
+    fig, axes = plt.subplots(2, 1)
+    axes[0].plot(np.arange(state_history[:, 11].size), state_history[:, 11], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 12].size), state_history[:, 12], color=f"C{1}")
+    axes[0].set_ylabel("SURGE")
+    axes[1].set_ylabel("YAWRATE")
+    fig.suptitle("Leader Internal States")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "leader_surge_yaw.png")
+
+    # plot follower surge and yaw states
+    fig, axes = plt.subplots(4, 1)
+    axes[0].plot(np.arange(state_history[:, 9].size), state_history[:, 9], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 6].size), state_history[:, 6], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 10].size), state_history[:, 10], color=f"C{1}")
+    axes[3].plot(np.arange(state_history[:, 7].size), state_history[:, 7], color=f"C{1}")
+    axes[0].set_ylabel("SURGE")
+    axes[1].set_ylabel("EU")
+    axes[2].set_ylabel("YAWRATE")
+    axes[3].set_ylabel("ER")
+    fig.suptitle("Follower Internal States")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "follower_surge_yaw.png")
+
+    # ex and derivatives plots
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(state_history[:, 0].size), state_history[:, 0], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 1].size), state_history[:, 1], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 2].size), state_history[:, 2], color=f"C{1}")
+    axes[0].set_ylabel("EX")
+    axes[1].set_ylabel("EX_DOT")
+    axes[2].set_ylabel("EX_DDOT")
+    fig.suptitle("EX and Derivatives")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ex_ders.png")
+
+    # ey and derivatives plot
+    fig, axes = plt.subplots(3, 1)
+    axes[0].plot(np.arange(state_history[:, 3].size), state_history[:, 3], color=f"C{1}")
+    axes[1].plot(np.arange(state_history[:, 4].size), state_history[:, 4], color=f"C{1}")
+    axes[2].plot(np.arange(state_history[:, 5].size), state_history[:, 5], color=f"C{1}")
+    axes[0].set_ylabel("EY")
+    axes[1].set_ylabel("EX_DOT")
+    axes[2].set_ylabel("EY_DDOT")
+    fig.suptitle("EY and Derivatives")
+    plt.tight_layout()
+    fig.savefig(plot_dir / "ey_ders.png")
+
+
 
 def main(ckpt_path: pathlib.Path):
     jax_default_x32()
@@ -118,107 +215,11 @@ def main(ckpt_path: pathlib.Path):
     fig.savefig(plot_dir / "eval_Vh.png")
     plt.close(fig)
 
-    # plot nominal BEV trajectories
-    fig, ax = plt.subplots()
-    ax.plot(T_x_nom[:, 13], T_x_nom[:, 14], color=f"C{1}", label=f"Leader ({alphas[-1]})")
-    ax.plot(T_x_nom[:, 16], T_x_nom[:, 17], color=f"C{2}", label=f"Follower ({alphas[-1]})")
-    ax.set(xlabel="X", ylabel="Y")
-    ax.set_aspect("equal")
-    ax.legend()
-    fig.savefig(plot_dir / "traj_nom.png")
-    plt.close(fig)
+    # make nominal plots
+    make_plots(plot_dir / "nominal", T_x_nom)
 
-
-    # plot leader and follower trajectories BEV trajectories
-    fig, ax = plt.subplots()
-    ax.plot(bT_x[-1, :, 13], bT_x[-1, :, 14], color=f"C{1}", label=f"Leader ({alphas[-1]})")
-    ax.plot(bT_x[-1, :, 16], bT_x[-1, :, 17], color=f"C{2}", label=f"Follower ({alphas[-1]})")
-    ax.set(xlabel="X", ylabel="Y")
-    ax.set_aspect("equal")
-    ax.legend()
-    fig.savefig(plot_dir / "traj_policy.png")
-    plt.close(fig)
-
-    # plot leader x, y, theta
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 13].size), bT_x[-1, :, 13], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 14].size), bT_x[-1, :, 14], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 15].size), bT_x[-1, :, 15], color=f"C{1}")
-    axes[0].set_ylabel("X")
-    axes[1].set_ylabel("Y")
-    axes[2].set_ylabel("THETA")
-    plt.tight_layout()
-    fig.suptitle("Leader Position")
-    fig.savefig(plot_dir / "xytheta_leader.png")
-
-    # plot follower x, y, theta
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 16].size), bT_x[-1, :, 16], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 17].size), bT_x[-1, :, 17], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 18].size), bT_x[-1, :, 18], color=f"C{1}")
-    axes[0].set_ylabel("X")
-    axes[1].set_ylabel("Y")
-    axes[2].set_ylabel("THETA")
-    plt.tight_layout()
-    fig.suptitle("Follower Position")
-    fig.savefig(plot_dir / "xytheta_follower.png")
-
-
-    # plot EX, EY, THETAREL
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 0].size), bT_x[-1, :, 0], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 3].size), bT_x[-1, :, 3], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 8].size), bT_x[-1, :, 8], color=f"C{1}")
-    axes[0].set_ylabel("EX")
-    axes[1].set_ylabel("EY")
-    axes[2].set_ylabel("THETAREL")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "ex_ey_thetarel.png")
-
-    # plot leader surge and yaw states
-    fig, axes = plt.subplots(2, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 11].size), bT_x[-1, :, 11], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 12].size), bT_x[-1, :, 12], color=f"C{1}")
-    axes[0].set_ylabel("SURGE")
-    axes[1].set_ylabel("YAWRATE")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "leader_surge_yaw.png")
-
-    # plot follower surge and yaw states
-    fig, axes = plt.subplots(4, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 9].size), bT_x[-1, :, 9], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 6].size), bT_x[-1, :, 6], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 10].size), bT_x[-1, :, 10], color=f"C{1}")
-    axes[3].plot(np.arange(bT_x[-1, :, 7].size), bT_x[-1, :, 7], color=f"C{1}")
-    axes[0].set_ylabel("SURGE")
-    axes[1].set_ylabel("EU")
-    axes[2].set_ylabel("YAWRATE")
-    axes[3].set_ylabel("ER")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "follower_surge_yaw.png")
-
-    # ex and derivatives plots
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 0].size), bT_x[-1, :, 0], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 1].size), bT_x[-1, :, 1], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 2].size), bT_x[-1, :, 2], color=f"C{1}")
-    axes[0].set_ylabel("EX")
-    axes[1].set_ylabel("EX_DOT")
-    axes[2].set_ylabel("EX_DDOT")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "ex_ders.png")
-
-    # ey and derivatives plot
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(np.arange(bT_x[-1, :, 3].size), bT_x[-1, :, 3], color=f"C{1}")
-    axes[1].plot(np.arange(bT_x[-1, :, 4].size), bT_x[-1, :, 4], color=f"C{1}")
-    axes[2].plot(np.arange(bT_x[-1, :, 5].size), bT_x[-1, :, 5], color=f"C{1}")
-    axes[0].set_ylabel("EY")
-    axes[1].set_ylabel("EX_DOT")
-    axes[2].set_ylabel("EY_DDOT")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "ey_ders.png")
-
+    # make policy plots
+    make_plots(plot_dir / "policy", bT_x[-1])    
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():

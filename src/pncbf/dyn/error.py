@@ -1,5 +1,6 @@
 import functools as ft
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -63,7 +64,7 @@ class Error(Task):
         self._lookahead: float = 10.0
         self._speed_control_gain: float = 30.0
         self._heading_rate_gain: float = 0.2
-        self._mode = "straight"
+        self._mode = "circle"
 
         # constant geometric parameters
         self._mx: float = 10.0
@@ -420,6 +421,9 @@ class Error(Task):
         never from self.leader or self.follower, so safe inside a JAX trace.
         """
         _, leader_x, leader_p, follower_p = self._unpack(state)
+        # jax.debug.print("leader_x: {}", leader_x)
+        # jax.debug.print("leader_p: {}", leader_p)
+        # jax.debug.print("follower_p: {}", follower_p)
 
         leader_theta = leader_p[Leader.THETA]
         leader_surge   = leader_x[Leader.SURGE]
@@ -430,8 +434,8 @@ class Error(Task):
         cross_track_error = fx_leader - self._mx
         along_track_error = fy_leader - self._my
 
-        max_speed = self._u_max_guidance[0]
         min_speed = self._u_min_guidance[0]
+        max_speed = self._u_max_guidance[0]
         guidance_speed = (leader_surge
                           - max_speed * (along_track_error
                                          / jnp.sqrt(along_track_error**2
@@ -443,7 +447,13 @@ class Error(Task):
 
         # now convert to a delta theta
         delta_theta = follower_theta - desired_theta
-        desired_yaw_rate = -delta_theta * self._heading_rate_gain # does not include filter from pTrajectTranslate. Also negative for correct sign
+        guidance_yaw_rate = -delta_theta * self._heading_rate_gain # does not include filter from pTrajectTranslate. Also negative for correct sign
+        
+        min_yaw_rate = self._u_min_guidance[1]
+        max_yaw_rate = self._u_max_guidance[1]
+        desired_yaw_rate = jnp.clip(guidance_yaw_rate, min_yaw_rate, max_yaw_rate)
+        # jax.debug.print("Desired speed: {}", desired_speed)
+        # jax.debug.print("Desired yaw rate: {}", desired_yaw_rate)
 
         return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
 
