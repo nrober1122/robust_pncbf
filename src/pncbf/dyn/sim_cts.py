@@ -139,4 +139,5 @@ class SimCtsReal:
             return solution.ys, solution.ts, solution.stats, T_states_noisy
 
         T_states = solution.ys
-        return T_states, solution.ts, solution.stats, None
+        T_controls = jax.vmap(self.get_control)(solution.ys)
+        return T_states, solution.ts, solution.stats, None, T_controls

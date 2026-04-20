@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 from pncbf.dyn.dyn_types import Control
 
-
 class Leader():
     # Internal dynamics state layout: [surge, yaw_rate]
     NX: int = 2
@@ -29,7 +28,7 @@ class Leader():
         if mode == "straight":
             return jnp.array([1.0, 0.0], dtype=jnp.float32)
         elif mode == "circle":
-            return jnp.array([1.0, 0.05], dtype=jnp.float32)
+            return jnp.array([1.0, 0.025], dtype=jnp.float32)
         elif mode == "zero":
             return jnp.array([0.0, 0.0], dtype=jnp.float32)
         else:
@@ -62,3 +61,28 @@ class Follower():
 
     def __init__(self) -> None:
         pass
+
+class HeronSimplified():
+    # Internal dynamics state layout: [surge, yaw_rate]
+    NX: int = 3
+    NU: int = 2
+
+    X, Y, THETA = range(NX)
+    VELOCITY, YAWRATE = range(NU)
+
+    def __init__(self) -> None:
+        pass
+
+    # ------------------------------------------------------------------
+    # Leader control (returns a constant — safe anywhere)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_leader_control(mode: str) -> Control:
+        if mode == "straight":
+            return jnp.array([1.0, 0.0], dtype=jnp.float32)
+        elif mode == "circle":
+            return jnp.array([1.0, 0.05], dtype=jnp.float32)
+        elif mode == "zero":
+            return jnp.array([0.0, 0.0], dtype=jnp.float32)
+        else:
+            raise ValueError(f"{mode} is not a valid mode for Heron.get_leader_control(mode)")    

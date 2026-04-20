@@ -8,8 +8,8 @@ import typer
 from loguru import logger
 import jax
 
-import run_config.int_avoid.error_cfg
-from pncbf.dyn.error import Error
+import run_config.int_avoid.dheron_simplified_cbf
+from pncbf.dyn.dheron_simplified import DHeronSimplified
 from pncbf.dyn.sim_cts import SimCtsReal
 from pncbf.plotting.contour_utils import centered_norm
 from pncbf.plotting.plotstyle import PlotStyle
@@ -22,8 +22,8 @@ from pncbf.utils.path_utils import mkdir
 def make_plots(plot_dir, time, state_history, control_history):
     # plot leader and follower trajectories BEV trajectories
     fig, ax = plt.subplots()
-    ax.plot(state_history[:, 13], state_history[:, 14], color=f"C{1}", label=f"Leader")
-    ax.plot(state_history[:, 16], state_history[:, 17], color=f"C{2}", label=f"Follower")
+    ax.plot(state_history[:, 3], state_history[:, 4], color=f"C{1}", label=f"Leader")
+    ax.plot(state_history[:, 6], state_history[:, 7], color=f"C{2}", label=f"Follower")
     ax.set(xlabel="X", ylabel="Y")
     ax.set_aspect("equal")
     ax.legend()
@@ -33,9 +33,9 @@ def make_plots(plot_dir, time, state_history, control_history):
 
     # plot leader x, y, theta
     fig, axes = plt.subplots(3, 1)
-    axes[0].plot(time, state_history[:, 13], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 14], color=f"C{1}")
-    axes[2].plot(time, state_history[:, 15], color=f"C{1}")
+    axes[0].plot(time, state_history[:, 3], color=f"C{1}")
+    axes[1].plot(time, state_history[:, 4], color=f"C{1}")
+    axes[2].plot(time, state_history[:, 5], color=f"C{1}")
     axes[0].set_ylabel("X")
     axes[1].set_ylabel("Y")
     axes[2].set_ylabel("THETA")
@@ -45,9 +45,9 @@ def make_plots(plot_dir, time, state_history, control_history):
 
     # plot follower x, y, theta
     fig, axes = plt.subplots(3, 1)
-    axes[0].plot(time, state_history[:, 16], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 17], color=f"C{1}")
-    axes[2].plot(time, state_history[:, 18], color=f"C{1}")
+    axes[0].plot(time, state_history[:, 6], color=f"C{1}")
+    axes[1].plot(time, state_history[:, 7], color=f"C{1}")
+    axes[2].plot(time, state_history[:, 8], color=f"C{1}")
     axes[0].set_ylabel("X")
     axes[1].set_ylabel("Y")
     axes[2].set_ylabel("THETA")
@@ -55,65 +55,16 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("Follower Position")
     fig.savefig(plot_dir / "xytheta_follower.png")
 
-
     # plot EX, EY, THETAREL
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(time, state_history[:, 0], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 3], color=f"C{1}")
-    axes[2].plot(time, state_history[:, 8], color=f"C{1}")
-    axes[0].set_ylabel("EX")
-    axes[1].set_ylabel("EY")
-    axes[2].set_ylabel("THETAREL")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "ex_ey_thetarel.png")
-
-    # plot leader surge and yaw states
-    fig, axes = plt.subplots(2, 1)
-    axes[0].plot(time, state_history[:, 11], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 12], color=f"C{1}")
-    axes[0].set_ylabel("SURGE")
-    axes[1].set_ylabel("YAWRATE")
-    fig.suptitle("Leader Internal States")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "leader_surge_yaw.png")
-
-    # plot follower surge and yaw states
-    fig, axes = plt.subplots(4, 1)
-    axes[0].plot(time, state_history[:, 9], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 6], color=f"C{1}")
-    axes[2].plot(time, state_history[:, 10], color=f"C{1}")
-    axes[3].plot(time, state_history[:, 7], color=f"C{1}")
-    axes[0].set_ylabel("SURGE")
-    axes[1].set_ylabel("EU")
-    axes[2].set_ylabel("YAWRATE")
-    axes[3].set_ylabel("ER")
-    fig.suptitle("Follower Internal States")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "follower_surge_yaw.png")
-
-    # ex and derivatives plots
     fig, axes = plt.subplots(3, 1)
     axes[0].plot(time, state_history[:, 0], color=f"C{1}")
     axes[1].plot(time, state_history[:, 1], color=f"C{1}")
     axes[2].plot(time, state_history[:, 2], color=f"C{1}")
     axes[0].set_ylabel("EX")
-    axes[1].set_ylabel("EX_DOT")
-    axes[2].set_ylabel("EX_DDOT")
-    fig.suptitle("EX and Derivatives")
+    axes[1].set_ylabel("EY")
+    axes[2].set_ylabel("THETAREL")
     plt.tight_layout()
-    fig.savefig(plot_dir / "ex_ders.png")
-
-    # ey and derivatives plot
-    fig, axes = plt.subplots(3, 1)
-    axes[0].plot(time, state_history[:, 3], color=f"C{1}")
-    axes[1].plot(time, state_history[:, 4], color=f"C{1}")
-    axes[2].plot(time, state_history[:, 5], color=f"C{1}")
-    axes[0].set_ylabel("EY")
-    axes[1].set_ylabel("EX_DOT")
-    axes[2].set_ylabel("EY_DDOT")
-    fig.suptitle("EY and Derivatives")
-    plt.tight_layout()
-    fig.savefig(plot_dir / "ey_ders.png")
+    fig.savefig(plot_dir / "ex_ey_thetarel.png")
 
     # plot control values
     fig, axes = plt.subplots(2, 1)
@@ -138,19 +89,18 @@ def eval_ckpt(ckpt_path: pathlib.Path):
     plot_dir = mkdir(run_path / "eval" / ckpt_path.stem)
     print(plot_dir)
 
-    task = Error()
+    task = DHeronSimplified()
     nom_pol = task.nom_pol_goto
 
-    CFG = run_config.int_avoid.error_cfg.get(seed)
+    CFG = run_config.int_avoid.dheron_simplified_cbf.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
     alg = load_ckpt(alg, ckpt_path)
     logger.info(f"Loaded ckpt from {ckpt_path}!")
 
     x0 = np.array([
-        0, 0, 0, 0, 0, 0, 0, 0, np.pi/2, 0, 0,
-        0, 0,
         0, 0, np.pi/2,
-        task._mx, 0, np.pi/2
+        0, 0, np.pi/2,
+        task._mx, -5, np.pi/2
     ], dtype=np.float32)
 
     T = 4000
