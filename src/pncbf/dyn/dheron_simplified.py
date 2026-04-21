@@ -368,6 +368,16 @@ class DHeronSimplified(Task):
         desired_yaw_rate = jnp.clip(guidance_yaw_rate, min_yaw_rate, max_yaw_rate)
 
         return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
+    
+    def nom_pol_straight(self, state: State, goal: State = None) -> Control:
+        """
+        Guidance law. Reads leader/follower state from the full state vector —
+        never from self.leader or self.follower, so safe inside a JAX trace.
+        """
+        desired_speed = 1.0
+        desired_yaw_rate = 0.0
+
+        return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
 
     def nom_pol_zero(self, state: State, goal: State = None) -> Control:
         return jnp.array([0.0, 0.0], dtype=jnp.float32)

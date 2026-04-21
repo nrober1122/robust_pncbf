@@ -28,7 +28,7 @@ class Leader():
         if mode == "straight":
             return jnp.array([1.0, 0.0], dtype=jnp.float32)
         elif mode == "circle":
-            return jnp.array([1.0, 0.025], dtype=jnp.float32)
+            return jnp.array([1.0, 0.05], dtype=jnp.float32)
         elif mode == "zero":
             return jnp.array([0.0, 0.0], dtype=jnp.float32)
         else:

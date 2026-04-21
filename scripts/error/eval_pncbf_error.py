@@ -42,6 +42,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     plt.tight_layout()
     fig.suptitle("Leader Position")
     fig.savefig(plot_dir / "xytheta_leader.png")
+    plt.close(fig)
 
     # plot follower x, y, theta
     fig, axes = plt.subplots(3, 1)
@@ -54,7 +55,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     plt.tight_layout()
     fig.suptitle("Follower Position")
     fig.savefig(plot_dir / "xytheta_follower.png")
-
+    plt.close(fig)
 
     # plot EX, EY, THETAREL
     fig, axes = plt.subplots(3, 1)
@@ -66,6 +67,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     axes[2].set_ylabel("THETAREL")
     plt.tight_layout()
     fig.savefig(plot_dir / "ex_ey_thetarel.png")
+    plt.close(fig)
 
     # plot leader surge and yaw states
     fig, axes = plt.subplots(2, 1)
@@ -76,6 +78,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("Leader Internal States")
     plt.tight_layout()
     fig.savefig(plot_dir / "leader_surge_yaw.png")
+    plt.close(fig)
 
     # plot follower surge and yaw states
     fig, axes = plt.subplots(4, 1)
@@ -90,6 +93,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("Follower Internal States")
     plt.tight_layout()
     fig.savefig(plot_dir / "follower_surge_yaw.png")
+    plt.close(fig)
 
     # ex and derivatives plots
     fig, axes = plt.subplots(3, 1)
@@ -102,6 +106,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("EX and Derivatives")
     plt.tight_layout()
     fig.savefig(plot_dir / "ex_ders.png")
+    plt.close(fig)
 
     # ey and derivatives plot
     fig, axes = plt.subplots(3, 1)
@@ -114,6 +119,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("EY and Derivatives")
     plt.tight_layout()
     fig.savefig(plot_dir / "ey_ders.png")
+    plt.close(fig)
 
     # plot control values
     fig, axes = plt.subplots(2, 1)
@@ -124,6 +130,7 @@ def make_plots(plot_dir, time, state_history, control_history):
     fig.suptitle("Control Values")
     plt.tight_layout()
     fig.savefig(plot_dir / "control_values.png")
+    plt.close(fig)
 
 def eval_ckpt(ckpt_path: pathlib.Path):
     print(f"Evaluation: {ckpt_path}")
@@ -139,7 +146,7 @@ def eval_ckpt(ckpt_path: pathlib.Path):
     print(plot_dir)
 
     task = Error()
-    nom_pol = task.nom_pol_goto
+    nom_pol = task.nom_pol_straight
 
     CFG = run_config.int_avoid.error_cfg.get(seed)
     alg: PNCBF = PNCBF.create(seed, task, CFG.alg_cfg, nom_pol)
@@ -153,7 +160,7 @@ def eval_ckpt(ckpt_path: pathlib.Path):
         task._mx, 0, np.pi/2
     ], dtype=np.float32)
 
-    T = 4000
+    T = 8000
     tf = T * task.dt
     noise_scale = 0.0
 
@@ -226,7 +233,7 @@ def main(run_path: pathlib.Path):
     if not ckpt_dir.exists():
         raise ValueError(f"No ckpts directory found at {ckpt_dir}")
 
-    target_steps = {"10000", "20000", "50000", "70000", "80000"}
+    target_steps = {"80000"}
 
     ckpt_paths = [
         p for p in ckpt_dir.iterdir()

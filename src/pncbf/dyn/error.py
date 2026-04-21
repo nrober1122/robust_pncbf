@@ -50,7 +50,7 @@ class Error(Task):
     _SL_FOLLOWER_P = slice(16, 19)
 
     # Error-state indices (within the first 12 elements)
-    EX, EXDOT, EXDDOT, EY, EYDOT, EYDDOT, EUI, ERI, THETAREL, UF, RC, UL, RL, XL, YL, THETAL, XF, YF, THETAF = range(NX)
+    EX, EXDOT, EXDDOT, EY, EYDOT, EYDDOT, EUI, ERI, THETAREL, UF, RC = range(NX_ERR)
     VELREF, YAWREF = range(NU)
 
     DT = 0.01
@@ -204,13 +204,9 @@ class Error(Task):
         rC = err_state[Error.RC] 
 
         thetarel = err_state[Error.THETAREL]
-        thetarel_dot = rC - leader_r
 
         d = jnp.sqrt(ex**2 + ey**2 + 1e-6)
         gamma = jnp.arctan2(ey, ex)
-
-        u_dotF = self._AuF21 * e_ui + self._AuF22 * uF
-        r_dotC = self._ArF21 * e_ri + self._ArF22 * rC
 
         s_tr = jnp.sin(thetarel)
         c_tr = jnp.cos(thetarel)
@@ -222,6 +218,13 @@ class Error(Task):
 
         d_dot = (ex * ex_dot + ey * ey_dot) / d
         gamma_dot = (-ey * ex_dot + ex * ey_dot) / (d ** 2)
+
+        thetarel_dot = rC - leader_r
+        partial_eui_dot = uF
+        partial_eri_dot = rC
+
+        u_dotF = self._AuF21 * e_ui + self._AuF22 * uF
+        r_dotC = self._ArF21 * e_ri + self._ArF22 * rC
 
         ex_ddot = (u_dotF * c_tr - uF * s_tr * thetarel_dot
                    - self._ml * (r_dotC * s_tr + rC * c_tr * thetarel_dot)
@@ -235,7 +238,7 @@ class Error(Task):
         gamma_ddot = (((-ey*ex_ddot + ex*ey_ddot) * d**2)
                       - 2 * (-ey*ex_dot + ex*ey_dot) * (ex*ex_dot + ey*ey_dot)) / (d**4)
 
-        ex_dddot = ((self._AuF21*uF + self._AuF22*u_dotF) * c_tr
+        partial_ex_dddot = ((self._AuF21*uF + self._AuF22*u_dotF) * c_tr
                     - 2*u_dotF*s_tr*thetarel_dot
                     - uF*(c_tr*thetarel_dot**2 + s_tr*r_dotC)
                     - self._ml * ((self._ArF21*rC + self._ArF22*r_dotC)*s_tr
@@ -243,7 +246,7 @@ class Error(Task):
                                   + rC*(c_tr*r_dotC - s_tr*thetarel_dot**2))
                     + leader_r * (d_ddot*s_g + 2*d_dot*c_g*gamma_dot
                                   + d*(c_g*gamma_ddot - s_g*gamma_dot**2)))
-        ey_dddot = ((self._AuF21*uF + self._AuF22*u_dotF) * s_tr
+        partial_ey_dddot = ((self._AuF21*uF + self._AuF22*u_dotF) * s_tr
                     + 2*u_dotF*c_tr*thetarel_dot
                     + uF*(c_tr*r_dotC - s_tr*thetarel_dot**2)
                     + self._ml * ((self._ArF21*rC + self._ArF22*r_dotC)*c_tr
@@ -255,12 +258,12 @@ class Error(Task):
         return jnp.array([
             ex_dot,
             ex_ddot,
-            ex_dddot,
+            partial_ex_dddot,
             ey_dot,
             ey_ddot,
-            ey_dddot,
-            uF, # \dot{e}_ui = uF - u^F_cmd. 
-            rC, # \dot{e}_ri = rC - r^C_cmd.
+            partial_ey_dddot,
+            partial_eui_dot, # \dot{e}_ui = uF - u^F_cmd. 
+            partial_eri_dot, # \dot{e}_ri = rC - r^C_cmd.
             thetarel_dot,
             u_dotF,
             r_dotC,
@@ -345,9 +348,7 @@ class Error(Task):
         ex = state[Error.EX]
         ey = state[Error.EY]
 
-        h_obs = -self._s * ((self._a * self._b)**2
-                            - (self._b * ex)**2
-                            - (self._a * ey)**2)
+        h_obs = -self._s * ((self._a * self._b)**2 - (self._b * ex)**2 - (self._a * ey)**2)
 
         hs = poly4_clip_max_flat(jnp.array([h_obs]), max_val=self.h_max)
         hs = -poly4_clip_max_flat(-hs, max_val=-self.h_min)
@@ -396,7 +397,7 @@ class Error(Task):
             (-60,  60),          # ey_ddot
             (-60,  60),          # eui
             (-40,  40),          # eri
-            (-2*np.pi, 2*np.pi),     # thetarel
+            (-2*np.pi, 2*np.pi), # thetarel
             (  0,   4),          # uF
             ( -1,   1),          # rC
         ], dtype=np.float32)
@@ -423,13 +424,9 @@ class Error(Task):
     # ------------------------------------------------------------------
     def nom_pol_goto(self, state: State, goal: State = None) -> Control:
         """
-        Guidance law. Reads leader/follower state from the full state vector —
-        never from self.leader or self.follower, so safe inside a JAX trace.
+        Guidance law. Same logic as the UNREP BHV.
         """
         _, leader_x, leader_p, follower_p = self._unpack(state)
-        # jax.debug.print("leader_x: {}", leader_x)
-        # jax.debug.print("leader_p: {}", leader_p)
-        # jax.debug.print("follower_p: {}", follower_p)
 
         leader_surge = leader_x[Leader.SURGE]
         leader_theta = leader_p[Leader.THETA]
@@ -458,8 +455,15 @@ class Error(Task):
         min_yaw_rate = self._u_min[1]
         max_yaw_rate = self._u_max[1]
         desired_yaw_rate = jnp.clip(guidance_yaw_rate, min_yaw_rate, max_yaw_rate)
-        # jax.debug.print("Desired speed: {}", desired_speed)
-        # jax.debug.print("Desired yaw rate: {}", desired_yaw_rate)
+
+        return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
+    
+    def nom_pol_straight(self, state: State, goal: State = None) -> Control:
+        """
+        Guidance law. Goes straight.
+        """
+        desired_speed = 1.0
+        desired_yaw_rate = 0.0
 
         return jnp.array([desired_speed, desired_yaw_rate], dtype=jnp.float32)
 
