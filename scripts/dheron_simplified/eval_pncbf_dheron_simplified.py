@@ -22,8 +22,38 @@ from pncbf.utils.path_utils import mkdir
 def make_plots(plot_dir, time, state_history, control_history):
     # plot leader and follower trajectories BEV trajectories
     fig, ax = plt.subplots()
-    ax.plot(state_history[:, 3], state_history[:, 4], color=f"C{1}", label=f"Leader")
-    ax.plot(state_history[:, 6], state_history[:, 7], color=f"C{2}", label=f"Follower")
+    # Leader trajectory
+    leader_x = state_history[:, 3]
+    leader_y = state_history[:, 4]
+
+    # Follower trajectory
+    follower_x = state_history[:, 6]
+    follower_y = state_history[:, 7]
+
+    ax.plot(leader_x, leader_y, color=f"C{1}", label="Leader")
+    ax.plot(follower_x, follower_y, color=f"C{2}", label="Follower")
+
+    # Add dashed connection lines every 10th point
+    step = 100
+    for i in range(0, len(state_history), step):
+        ax.plot(
+            [leader_x[i], follower_x[i]],
+            [leader_y[i], follower_y[i]],
+            linestyle="--",
+            color="gray",
+            linewidth=1,
+            alpha=0.7,
+        )
+
+        # Add endpoint dots
+        ax.scatter(
+            [leader_x[i], follower_x[i]],
+            [leader_y[i], follower_y[i]],
+            s=20,
+            color="gray",
+            zorder=3,
+        )
+
     ax.set(xlabel="X", ylabel="Y")
     ax.set_aspect("equal")
     ax.legend()
