@@ -1,0 +1,6 @@
+[submodule "src/jax_verify"]
+	path = src/jax_verify
+	url = git@github.com:nrober1122/jax_verify.git
+[submodule "src/guardian"]
+	path = src/guardian
+	url = https://github.com/mit-acl/guardian.git
