@@ -28,6 +28,7 @@ from mrncbf.qp.min_norm_cbf import (
     rcbf_qp_linear, rcbf_qp_linear_mats,
     compute_rcbf_gammas,
     rcbf_qp_learned, rcbf_qp_learned_mats,
+    gcbf_qp,
 )
 from mrncbf.utils.grad_utils import compute_norm, empty_grad_tx
 from mrncbf.utils.jax_types import BBFloat, BBool, BFloat, BHBool, BTHBool, FloatScalar, MetricsDict
@@ -516,7 +517,106 @@ class PNCBF(struct.PyTreeNode):
             alpha_safe, alpha_unsafe, state,
             nnv_filter, epsilon, V_shift, n_samples, nom_pol=nom_pol,
         )[0]
-    
+
+    # ── guardian cbf (g-cbf) ──────────────────────────────────────────────────────
+    def get_gcbf_control_all(
+        self,
+        alpha_safe: float,
+        alpha_unsafe: float,
+        state,
+        nnv_filter=None,
+        epsilon: float = 1e-4,
+        V_shift: float = 1e-3,
+        n_samples: int = 100,
+        rng_key=None,
+        nom_pol=None,
+    ):
+        """
+        Guardian CBF (G-CBF): worst-case CBF-QP over the state uncertainty set.
+
+        Samples N states from the uncertainty ball around the estimated state,
+        finds the one with the largest CBF value (smallest safety margin, i.e.
+        most unsafe), and solves the standard min-norm CBF-QP using that
+        worst-case state's Lie-derivative ingredients. The QP objective still
+        minimises deviation from u_nom evaluated at the nominal estimated state.
+
+        This is the direct sample-based analogue of guardian/worst-case
+        reachability: no analytical robustness margin is needed; instead the
+        constraint itself is derived from the hardest point in the uncertainty
+        set.
+        """
+        u_lb, u_ub = self.task.u_min, self.task.u_max
+        h_V, hx_Vx, f, G, u_nom = self._get_cbf_ingredients(state, V_shift, nom_pol)
+        alpha = _resolve_alpha(h_V, alpha_safe, alpha_unsafe)
+
+        # ── State uncertainty bounds ──────────────────────────────────────────
+        if nnv_filter is None:
+            lo = state - epsilon * jnp.ones(state.shape)
+            hi = state + epsilon * jnp.ones(state.shape)
+        else:
+            bounds = nnv_filter.state_bounds(epsilon=epsilon)
+            lo, hi = bounds.lo, bounds.hi
+
+        # ── Sample perturbed states ───────────────────────────────────────────
+        rng_key = get_or(rng_key, jax.random.PRNGKey(0))
+        x_samples = jax.random.uniform(
+            rng_key,
+            shape=(n_samples, self.task.nx),
+            minval=lo, maxval=hi,
+        )
+
+        # ── CBF ingredients at each sample ────────────────────────────────────
+        Vh_apply = ft.partial(self.get_Vh, params=self.Vh.params)
+
+        def _ingredients_at(x_i):
+            h_i  = Vh_apply(x_i) + V_shift
+            hx_i = jax.jacobian(Vh_apply)(x_i)
+            f_i  = self.task.f(x_i)
+            G_i  = self.task.G(x_i)
+            return h_i, hx_i, f_i, G_i
+
+        h_V_p, hx_Vx_p, f_p, G_p = jax.vmap(_ingredients_at)(x_samples)
+
+        # ── Lie derivatives at each sample ────────────────────────────────────
+        # h_Lf_V_p : (N, nh)     Lf V_i at each sample
+        # h_LG_V_p : (N, nh, nu) LG V_i at each sample
+        h_Lf_V_p = jnp.einsum("nhi,ni->nh", hx_Vx_p, f_p)
+        h_LG_V_p = jnp.einsum("nhi,niu->nhu", hx_Vx_p, G_p)
+
+        # ── Per-constraint independent worst-case selection ───────────────────
+        nh = h_V_p.shape[1]
+        ci = jnp.arange(nh)
+
+        # largest h_V  → smallest safety margin
+        wc_hV    = jnp.argmax(h_V_p, axis=0)                     # (nh,)
+        h_V_wc   = h_V_p[wc_hV, ci]                              # (nh,)
+
+        # largest Lf_V → most dangerous passive drift
+        wc_LfV   = jnp.argmax(h_Lf_V_p, axis=0)                  # (nh,)
+        h_Lf_V_wc = h_Lf_V_p[wc_LfV, ci]                        # (nh,)
+
+        # smallest ||LG_V|| → least control authority
+        LG_norms  = jnp.linalg.norm(h_LG_V_p, axis=-1)           # (N, nh)
+        wc_LGV    = jnp.argmin(LG_norms, axis=0)                  # (nh,)
+        h_LG_V_wc = h_LG_V_p[wc_LGV, ci, :]                     # (nh, nu)
+
+        # ── Per-constraint worst-case CBF-QP, u_nom from nominal state ────────
+        u_opt, r, sol = gcbf_qp(
+            alpha, u_lb, u_ub, h_V_wc, h_Lf_V_wc, h_LG_V_wc, u_nom,
+            relax_eps2=0.1,
+        )
+        return self.task.chk_u(u_opt), (r, sol)
+
+    def get_gcbf_control(
+        self, alpha_safe, alpha_unsafe, state,
+        nnv_filter=None, epsilon=1e-4,
+        V_shift=1e-3, n_samples=100, nom_pol=None,
+    ):
+        return self.get_gcbf_control_all(
+            alpha_safe, alpha_unsafe, state,
+            nnv_filter, epsilon, V_shift, n_samples, nom_pol=nom_pol,
+        )[0]
+
     # ── mrncbf ────────────────────────────────────────────────────────────────────
     def get_learned_rcbf_control_all(
         self,                          # PNCBF instance

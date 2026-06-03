@@ -34,7 +34,8 @@ def main(
 
     CFG = run_config.int_avoid.doubleintwall_cfg.get(seed)
 
-    nom_pol = task.nom_pol_osc
+    # nom_pol = task.nom_pol_osc
+    nom_pol = task.nom_pol_rng3
     CFG.extras = {"nom_pol": "pp"}
 
     if ckpt is not None:

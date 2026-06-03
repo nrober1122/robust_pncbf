@@ -259,7 +259,7 @@ class _Plotter:
                     ax.contour(
                         bb_X, bb_Y, bb_V_other, levels=[0.0], colors=[color], alpha=0.98, linewidths=1.0, zorder=3.2
                     )
-                elif len(extra_line) == 2 and not isinstance(extra_lines[0], dict):
+                elif len(extra_line) == 2 and not isinstance(extra_line[0], dict):
                     if stpidx == 0:
                         bb_V_other, color = extra_line
                         _, bb_X, bb_Y = self._task.get_contour_x0(setup=0)

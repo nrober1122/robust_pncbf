@@ -38,7 +38,7 @@ def main(ckpt_path: pathlib.Path):
     x0 = np.array([0.8, 0.3])
     T = 80
     tf = T * task.dt
-    noise_scale = 0.2
+    noise_scale = 0.1
 
     # Original nominal policy.
     logger.info("Sim nom...")
@@ -64,6 +64,10 @@ def main(ckpt_path: pathlib.Path):
         ),
         "rcbf_qp": lambda alpha_safe, alpha_unsafe: ft.partial(
             alg.get_rcbf_qp_control, alpha_safe, alpha_unsafe,
+            nnv_filter=None, epsilon=noise_scale, V_shift=1e-2
+        ),
+        "gcbf": lambda alpha_safe, alpha_unsafe: ft.partial(
+            alg.get_gcbf_control, alpha_safe, alpha_unsafe,
             nnv_filter=None, epsilon=noise_scale, V_shift=1e-2
         ),
     }
