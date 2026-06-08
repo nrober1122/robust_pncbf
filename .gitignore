@@ -61,3 +61,6 @@ solver.out
 
 paper_plots
 paper_data
+
+# Hardware deploy: keep the trained PhiNet checkpoints (needed for nmrcbf).
+!deploy/go2/nick_safe_ctrl/ckpts/*.pkl

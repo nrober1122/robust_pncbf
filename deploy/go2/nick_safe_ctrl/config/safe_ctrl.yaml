@@ -1,0 +1,106 @@
+safe_ctrl_node:
+  ros__parameters:
+    # ---- Topics ------------------------------------------------------------
+    # SportModeState publisher rate on the robot:
+    #   "sportmodestate"     -> high frequency (~500 Hz)
+    #   "lf/sportmodestate"  -> low  frequency (~50  Hz)
+    state_topic: "lf/sportmodestate"
+    # Unitree sport-mode API request topic (SportClient Move / StopMove).
+    sport_request_topic: "/api/sport/request"
+
+    # ---- Control loop ------------------------------------------------------
+    control_rate_hz: 50.0
+    # If no state has arrived for this long, publish StopMove instead of control.
+    state_timeout_sec: 0.5
+
+    # ---- Safety ------------------------------------------------------------
+    # dry_run=true runs the whole CBF pipeline and logs the (vx, vyaw) it WOULD
+    # send, but publishes no motion. Set to false to actually drive the robot.
+    dry_run: false
+
+    # ---- Task: goal + obstacle (startup task frame, metres) ----------------
+    # The task frame is captured from the robot's pose when the node starts:
+    # +x is "ahead", +y is "left" of that startup pose.
+    goal_xy: [6.0, 0.0]
+    goal_tolerance: 0.45
+    # ---- Obstacles ---------------------------------------------------------
+    # Multiple obstacles are given as PARALLEL arrays (ROS2 params can't nest
+    # lists): obstacle i is centred at (obstacles_x[i], obstacles_y[i]) with
+    # real radius obstacle_radii[i]. All three arrays must be the same length.
+    # body_margin is shared. Each control tick only the nearest
+    # n_closest_obs of them become CBF-QP constraints (set <= 0 to use all).
+    # NOTES on placing obstacles:
+    #  - An obstacle exactly on the start->goal line can only be braked in front
+    #    of (no lateral push); a small y-offset makes the robot swerve around.
+    #  - Each must be at least (R_cbf + control_point_distance) from the start,
+    #    or the control point begins inside its keep-out (the node logs an error).
+    obstacles_x: [2.84, 5.33] # [2.84, 4.5] [2.84, 5.33] # [2.59, 5.08] # [2.59, 4.25] # [2.5, 4.5]
+    obstacles_y: [0.35, -0.6] # -0.6 [0.35, -0.65] [0.15, -0.65]
+    obstacle_radii: [0.43, 0.43]   # real obstacle radii (one per obstacle)
+    body_margin: 0.03             # extra clearance for the robot body (shared)
+    n_closest_obs: 2             # include this many nearest obstacles as constraints
+    # CBF keep-out radius R_cbf_i = obstacle_radii[i] + body_margin.
+    # The control_point_distance d is intentionally NOT added: the CBF guards
+    # the control point (which leads the body by d), so a worst-case head-on
+    # approach could let the body intrude up to d. That is judged acceptable in
+    # practice -- the body swerves with the control point rather than driving
+    # straight in -- so we trade that margin for reaching closer to obstacles.
+
+    # ---- Feedback linearization (linearized.ipynb, unicycle branch) --------
+    control_point_distance: 0.35   # d: control point held this far ahead
+
+    # ---- CBF-QP (dbint2d_quad.py: _cbf_step, phi = 0) ----------------------
+    alpha0: 3.0 # 3.0, 2.0        # HOCBF class-K gain (ALPHA_HOCBF)
+    alpha_qp: 2.0 # 2.0, 1.0      # CBF-QP class-K gain (ALPHA_QP)
+    accel_max: 2.0     # per-axis control-point acceleration bound
+    # CBF-QP slack penalty. Steady-state barrier softening ~ 1/(qp_penalty*
+    # alpha_qp*alpha0): 200 -> ~2.5 mm. The notebook used relax_eps2=0.1
+    # (~penalty 10 -> 5 cm) for its comparison study; stiffer is safer here.
+    qp_penalty: 200.0
+    nominal_kp: 2.0    # goal-seeking PD position gain
+    nominal_kd: 2.0    # goal-seeking PD velocity gain
+
+    # ---- CBF method (phi-source) and measurement-noise robustness ----------
+    # plain    -> phi = 0  (baseline; the live test you already ran)
+    # mrcbf    -> fixed Lipschitz tightening (most conservative; in sim it is
+    #             so conservative the goal is often missed -- kept here as a
+    #             reference, not for serious comparison)
+    # pshrcbf  -> runtime projected-gradient ascent over [xhat-eps, xhat+eps]
+    #             (the phi-oracle that PhiNet was trained to approximate)
+    # nmrcbf   -> numpy-loaded PhiNet (the learned PSHR approximation)
+    cbf_method: pshrcbf
+    state_eps: [0.25, 0.125, 0.25, 0.125]   # per-dim uncertainty on (px, vx, py, vy)
+
+    # Synthetic measurement noise: when enabled, the CBF/QP see
+    # xhat = true_state + bias  instead of the measured state.  Both the
+    # nominal and the QP use xhat; logs report h_true so safety is still
+    # interpretable.  |bias_i| must be <= state_eps_i.
+    noise_injection:
+      enabled: true
+      bias: [-0.25, -0.125, -0.25, -0.125]
+      # bias: [0.0, 0.0, -0.1, 0.0]
+
+    # PSHR-CBF projected-gradient ascent (notebook defaults).
+    pshr_restarts: 4
+    pshr_steps: 25
+    pshr_lr: 0.05
+    pshr_seed: 0
+
+    # NMR-CBF: pickled Flax PhiNet weights (loaded into the numpy PhiNet).
+    nmrcbf_checkpoint: "ckpts/phi_params.pkl"
+
+    # MR-CBF Lipschitz estimation domain (only used when cbf_method=mrcbf).
+    mrcbf_lipschitz_lo: [-3.0, -2.0, -3.0, -2.0]
+    mrcbf_lipschitz_hi: [ 3.0,  2.0,  3.0,  2.0]
+    mrcbf_lipschitz_samples: 5000
+
+    # ---- Command limits (conservative; raise once verified) ----------------
+    cp_speed_max: 2.5  # cap on the integrated control-point speed (m/s)
+    vx_min: -0.15      # min forward velocity command (m/s)
+    vx_max: 1.0        # max forward velocity command (m/s)
+    vyaw_max: 1.0      # max yaw-rate command magnitude (rad/s)
+
+    # ---- Neural NMR-CBF (currently DISABLED) -------------------------------
+    # This node runs the pure-CBF baseline (phi = 0). The trained Flax network
+    # in value_function.py / ckpts/phi_params.pkl is not loaded. To re-enable
+    # it, add phi/alpha_qp to psi1 in double_integrator_cbf.cbf_qp_filter.
