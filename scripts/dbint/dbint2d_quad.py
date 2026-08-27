@@ -23,13 +23,14 @@ DT = 0.05
 T = 400
 ALPHA_HOCBF = 2.0
 ALPHA_QP = 1.0
+H_SHIFT = 0.0   # safety margin folded into HOCBF to cover Euler integration leak
 
 u_lb = jnp.array([-UMAX, -UMAX])
 u_ub = jnp.array([UMAX, UMAX])
 
 # Default deployment-time uncertainty (used by the notebook). Fine-tuning
 # samples per-iter eps in [0, EPS_MAX] instead.
-STATE_EPS = jnp.array([0.1, 0.05, 0.1, 0.05]) * 1
+STATE_EPS = jnp.array([0.1, 0.05, 0.1, 0.05]) * 3
 
 # Per-dim max uncertainty radius the PhiNet was trained over.
 EPS_MAX = jnp.array([0.7, 0.3, 0.7, 0.3])
@@ -42,16 +43,16 @@ NMR_WEIGHTS_DIR = (
     / "runs"
     / "nmr_cbf_dbint2d"
     / "policies"
-    / "quadruped"
-    # / "obs0.25"
+    # / "quadruped"
+    / "obs0.25"
 )
 
 # QUADRUPED_PARAMS
-UMAX = 2.0
-R_OBS = 0.43
-ALPHA_HOCBF = 3.0
-ALPHA_QP = 2.0
-EPS_MAX = jnp.array([0.5, 0.25, 0.5, 0.25])
+# UMAX = 2.0
+# R_OBS = 0.43
+# ALPHA_HOCBF = 3.0
+# ALPHA_QP = 2.0
+# EPS_MAX = jnp.array([0.5, 0.25, 0.5, 0.25])
 
 # ─── Dynamics + HOCBF ─────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ def f(x):
 
 
 def G(x):
-    return jnp.array([[0.0, 0.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]]) * UMAX
+    return jnp.array([[0.0, 0.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]]) # * UMAX # COMMENTING THIS OUT 
 
 
 def h_raw(x):
@@ -70,8 +71,8 @@ def h_raw(x):
 
 
 def B_hocbf(x, alpha=ALPHA_HOCBF):
-    h = h_raw(x)
-    J_h = jax.jacobian(h_raw)(x)
+    h = h_raw(x) + H_SHIFT
+    J_h = jax.jacobian(h_raw)(x)   # derivative of constant shift is 0
     return J_h @ f(x) + alpha * h  # (1,)
 
 
