@@ -1,0 +1,78 @@
+safe_ctrl_node:
+  ros__parameters:
+    accel_max: 2.0
+    alpha0: 3.0
+    alpha_qp: 2.0
+    body_margin: 0.16
+    cbf_method: plain
+    control_point_distance: 0.35
+    control_rate_hz: 50.0
+    cp_speed_max: 2.5
+    dry_run: false
+    goal_tolerance: 0.45
+    goal_xy:
+    - 7.3443
+    - 0.8688
+    mrcbf_lipschitz_hi:
+    - 3.0
+    - 2.0
+    - 3.0
+    - 2.0
+    mrcbf_lipschitz_lo:
+    - -3.0
+    - -2.0
+    - -3.0
+    - -2.0
+    mrcbf_lipschitz_samples: 5000
+    n_closest_obs: 2
+    nmrcbf_checkpoint: ckpts/phi_params.pkl
+    noise_injection:
+      bias:
+      - 0.0
+      - 0.0
+      - -0.15
+      - 0.0
+      enabled: true
+    nominal_kd: 2.0
+    nominal_kp: 2.0
+    obstacle_radii:
+    - 0.43
+    - 0.43
+    obstacle_source: config
+    obstacle_xy_topic: /obstacle_xy
+    obstacles_x:
+    - 2.8727
+    - 5.7802
+    obstacles_y:
+    - 1.073
+    - 0.3572
+    perceived_obstacle_radius: 0.43
+    perception_timeout_sec: 0.5
+    pshr_lr: 0.05
+    pshr_restarts: 2
+    pshr_seed: 0
+    pshr_steps: 20
+    qp_penalty: 200.0
+    sport_request_topic: /api/sport/request
+    state_eps:
+    - 0.05
+    - 0.01
+    - 0.15
+    - 0.01
+    state_eps_schedule:
+      max:
+      - 0.7
+      - 0.15
+      - 0.7
+      - 0.15
+      mode: distance
+      rate:
+      - 0.13
+      - 0.0
+      - 0.0
+      - 0.0
+    state_timeout_sec: 0.5
+    state_topic: lf/sportmodestate
+    vx_max: 1.0
+    vx_min: -0.15
+    vyaw_max: 1.0

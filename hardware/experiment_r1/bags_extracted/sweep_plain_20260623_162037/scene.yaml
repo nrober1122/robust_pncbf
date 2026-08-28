@@ -1,0 +1,23 @@
+# Sweep scene -- measured ONCE in the Vicon frame, reused for the whole batch.
+# Positions in metres in the Vicon plane (right-handed; yaw CCW from +x).
+# Fill in your measured obstacle + goal world positions.
+
+obstacles_world:        # one [x, y] per obstacle, SAME ORDER as obstacle_radii
+  - [-0.964, 0.331]
+  - [1.922, -0.467] # Experiment 1: [1.900, -0.434] # [1.586, -0.648] [1.575, -0.395]
+    #  - [1.536, -0.622]
+goal_world: [3.5, 0.0] # [3.0, 0.0]
+
+# Two measurement-bias vectors [px, vx, py, vy] added to the CBF state estimate
+# (xhat = true + bias). |bias_i| must be <= state_eps_i from the base config
+# (currently state_eps = [0.25, 0.125, 0.25, 0.125]). Group A = first half of
+# the runs, Group B = second half (override per run if you like).
+bias_a: [0.0, 0.0, -0.15, 0.0]
+bias_b: [0.0, 0.0, -0.15, 0.0]
+# bias_b: [-0.25, -0.125, -0.25, -0.125]
+
+n_runs: 10
+split: alternate             # 'half' (first n/2 = A, rest = B) or 'alternate'
+
+# obstacle_radii, body_margin, control_point_distance, state_eps, dry_run all
+# come from the base config (--base, default config/safe_ctrl.yaml).

@@ -1,0 +1,25 @@
+rosbag2_bagfile_information:
+  version: 4
+  storage_identifier: sqlite3
+  relative_file_paths:
+    - bag_0.db3
+  duration:
+    nanoseconds: 17200100411
+  starting_time:
+    nanoseconds_since_epoch: 1782247178936695840
+  message_count: 920
+  topics_with_message_count:
+    - topic_metadata:
+        name: /lf/sportmodestate
+        type: unitree_go/msg/SportModeState
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 345
+    - topic_metadata:
+        name: /safe_ctrl_node/diagnostics
+        type: std_msgs/msg/Float64MultiArray
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 575
+  compression_format: ""
+  compression_mode: ""
