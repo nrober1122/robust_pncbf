@@ -1,7 +1,7 @@
 # nick_safe_ctrl — Measurement-Robust CBF Obstacle Avoidance on the Unitree Go2
 
 Runs control-barrier-function (CBF) obstacle avoidance on a Unitree Go2, with
-four interchangeable barrier-tightening strategies for robustness to
+six interchangeable robust-CBF strategies for robustness to
 measurement noise. The robot is modeled as a 2-D double integrator on a
 feedback-linearization control point; the resulting acceleration is converted
 to `(vx, vyaw)` and sent to the Go2's sport-mode `Move` API.
@@ -52,7 +52,7 @@ rather than the body leaves up to `d` of body slack in a worst-case head-on
 approach, but in practice the body swerves with the control point, so that
 margin is traded away to let the robot reach closer to obstacles.
 
-### The four CBF methods (`cbf_method` in YAML)
+### The CBF methods (`cbf_method` in YAML)
 
 | method | `phi` source | notes |
 |---|---|---|
@@ -60,9 +60,20 @@ margin is traded away to let the robot reach closer to obstacles.
 | `mrcbf` | constant Lipschitz tightening | **too conservative** — in sim it overshoots so much the goal is missed; kept only as a reference |
 | `pshrcbf` | runtime projected-gradient ascent over `[xhat-eps, xhat+eps]` | the worst-case "phi-oracle" |
 | `nmrcbf` | learned `PhiNet(xhat, eps)` | numpy port of the trained Flax net; approximates `pshrcbf` |
+| `rcbfqp` | R-CBF-QP: `γ₁‖LGψ₁‖ + γ₂²‖LGψ₁‖²` | `(γ₁, γ₂)` grid-searched each tick over 20 samples in the eps-box (notebook `_rcbf_step`) |
+| `duality` | Duality CBF: constraint at every vertex of the support-function polytope | polytope of `[LGψ₁, Lfψ₁ + α ψ₁]` over the eps-box, 16 Fibonacci planes (notebook `_duality_step`) |
 
-All four share the same QP; they differ only in how `phi` is computed. With
-multiple obstacles, `phi` is computed per active obstacle.
+All share the same min-norm QP (per-row quadratic slack `qp_penalty`, box by
+clipping). The first five differ only in the scalar tightening `phi`, computed
+per active obstacle. `duality` instead adds one QP row per polytope vertex
+(~15-30 per obstacle): the notebook's LP-dual certificate
+(`λ ≥ 0, Dᵀλ = [u; 1], dᵀλ ≤ r`) is, by LP duality, the same as requiring
+`v · [u; 1] ≤ r` at every vertex `v`, so it needs no QP library. Those rows
+are solved exactly by semismooth Newton (`min_norm_qp_rows`); for `duality`
+the logged `phi` is the effective tightening at the chosen control,
+`max_v v·[u;1] − z(xhat)·[u;1]`. Both ports were checked against the notebook's
+JAX code: identical R-CBF-QP `(γ₁, γ₂)` on identical samples, and the vertex
+QP matches the LP-dual QP to solver tolerance.
 
 ---
 
@@ -77,6 +88,8 @@ nick_safe_ctrl/
   feedback_linearization.py control point + linearizing map -> (vx, vyaw)
   phi_sources.py           PlainPhi / MRCBFPhi / PSHRPhi / NMRCBFPhi + dispatch
   phi_net.py               numpy PhiNet + Flax-pickle loader (no jax dep)
+  robust_baselines.py      RCBFQPPhi (R-CBF-QP) / DualityCBF + solve_filter,
+                           the per-tick filter step shared by all methods
   compare_methods.py       offline 4-method comparison rollout
   run_analysis.py          analyze a diag bag: collisions, clearances, goal
   plot_run.py              render a diag bag (or overlay several) to a PNG
@@ -196,7 +209,12 @@ ros2 topic pub --once /api/sport/request unitree_api/msg/Request \
 ```
 
 ### Key parameters (`config/safe_ctrl.yaml`)
-- `cbf_method`: `plain | mrcbf | pshrcbf | nmrcbf`
+- `cbf_method`: `plain | mrcbf | pshrcbf | nmrcbf | rcbfqp | duality`
+- `rcbfqp_*`: R-CBF-QP gamma search (samples, grid size, `gamma_max`,
+  regularizer weights). Cost per tick scales with `rcbfqp_grid²`; drop it
+  (e.g. 30) if the Jetson misses the 50 Hz deadline.
+- `duality_*`: Duality CBF polytope (planes, ascent restarts / steps / lr).
+  Cost scales with `duality_planes × duality_restarts × duality_steps`.
 - `noise_injection.enabled` / `.bias`: synthetic measurement bias (4-vector on
   `(px, vx, py, vy)`); `|bias_i|` must be `<= state_eps_i`
 - `state_eps`: uncertainty bound the robust methods assume (default
@@ -338,8 +356,10 @@ comparison are the current next steps.
   for rigorous robustness claims, integrate Vicon (currently on a separate WiFi).
 - Obstacles are **virtual** (configured in YAML). Real-obstacle detection from
   the Go2's lidar / `range_obstacle` sensors is a separate, larger task.
-- `mrcbf` is too conservative to be useful. `R-CBF` and `R-CBF-QP` from the
-  notebook work better and are reasonable to port (different QP structure —
-  sampled multi-constraint) but are not yet implemented.
+- `mrcbf` is too conservative to be useful. `rcbfqp` and `duality` are the
+  notebook's stronger baselines. Sampled `R-CBF` (no gamma search) is not ported.
+- Per-tick cost (2 obstacles, laptop): `rcbfqp` ~3.4 ms, `duality` ~2.8 ms,
+  `pshrcbf` ~4.3 ms median. The Jetson is slower; check the 50 Hz timing in a
+  dry run before going live.
 - To re-enable the learned net, set `cbf_method: nmrcbf`. The numpy `PhiNet`
   loads `ckpts/phi_params.pkl` directly (no jax needed).

@@ -1,4 +1,4 @@
-"""Four barrier-tightening strategies for the CBF-QP.
+"""Barrier-tightening strategies for the CBF-QP.
 
 All four share the same min-norm CBF-QP (see ``double_integrator_cbf.cbf_qp_filter``)
 and differ only in how the non-negative tightening term ``phi`` is computed.
@@ -15,6 +15,14 @@ so any ``phi >= 0`` makes the filter more conservative.  See
   nmrcbf   -- phi = PhiNet(xhat, eps)                               (learned PSHR approx)
 
 where ``g(x) = Lf psi1(x) + alpha_qp * psi1(x)``.
+
+Two more robust baselines live in ``robust_baselines.py`` and are also built
+by :func:`build_phi_source`:
+
+  rcbfqp   -- phi = gamma1 ||LG psi1|| + gamma2^2 ||LG psi1||^2   (R-CBF-QP)
+  duality  -- vertex rows of the support-function polytope         (Duality CBF)
+
+Use ``robust_baselines.solve_filter`` to run any of them through the QP.
 """
 from __future__ import annotations
 
@@ -26,9 +34,11 @@ import numpy as np
 try:  # works as a package member (used by safe_ctrl_node)
     from . import double_integrator_cbf as dic
     from .phi_net import load_phi_net
+    from .robust_baselines import DualityCBF, RCBFQPPhi
 except ImportError:  # falls back when run directly as a script
     import double_integrator_cbf as dic
     from phi_net import load_phi_net
+    from robust_baselines import DualityCBF, RCBFQPPhi
 
 
 # ---- plain ----------------------------------------------------------------
@@ -209,10 +219,13 @@ def build_phi_source(
     nmr_checkpoint: Optional[Path] = None,
     mr_bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     mr_samples: int = 5000,
+    rcbfqp_cfg: Optional[dict] = None,
+    duality_cfg: Optional[dict] = None,
 ):
     """Construct a phi-source from a method name and parameters.
 
-    ``method`` is one of ``plain | mrcbf | pshrcbf | nmrcbf`` (case-insensitive).
+    ``method`` is one of ``plain | mrcbf | pshrcbf | nmrcbf | rcbfqp | duality``
+    (case-insensitive).
     """
     method = method.lower().strip()
     state_eps = np.asarray(state_eps, dtype=float)
@@ -237,5 +250,10 @@ def build_phi_source(
         if nmr_checkpoint is None:
             raise ValueError("nmrcbf requires nmr_checkpoint")
         return NMRCBFPhi(nmr_checkpoint, state_eps)
+    if method == "rcbfqp":
+        return RCBFQPPhi(state_eps, **(rcbfqp_cfg or {}))
+    if method == "duality":
+        return DualityCBF(state_eps, **(duality_cfg or {}))
     raise ValueError(
-        f"unknown cbf_method '{method}'; choices: plain | mrcbf | pshrcbf | nmrcbf")
+        f"unknown cbf_method '{method}'; choices: "
+        f"plain | mrcbf | pshrcbf | nmrcbf | rcbfqp | duality")

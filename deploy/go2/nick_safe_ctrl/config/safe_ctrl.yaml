@@ -68,6 +68,10 @@ safe_ctrl_node:
     # pshrcbf  -> runtime projected-gradient ascent over [xhat-eps, xhat+eps]
     #             (the phi-oracle that PhiNet was trained to approximate)
     # nmrcbf   -> numpy-loaded PhiNet (the learned PSHR approximation)
+    # rcbfqp   -> R-CBF-QP: phi = g1*|LG psi1| + g2^2*|LG psi1|^2, (g1, g2)
+    #             grid-searched each tick over samples in the eps-box
+    # duality  -> Duality CBF: constraint enforced at every vertex of the
+    #             support-function polytope of [LG psi1, Lf psi1 + a*psi1]
     cbf_method: pshrcbf
     state_eps: [0.25, 0.125, 0.25, 0.125]   # per-dim uncertainty on (px, vx, py, vy)
 
@@ -89,6 +93,23 @@ safe_ctrl_node:
     # NMR-CBF: pickled Flax PhiNet weights (loaded into the numpy PhiNet).
     nmrcbf_checkpoint: "ckpts/phi_params.pkl"
 
+    # R-CBF-QP gamma selection (notebook defaults: 20 samples, 50x50 grid on
+    # [1e-3, gamma_max], reg 0.1, smooth 0.05 anchored at 0).
+    rcbfqp_samples: 20
+    rcbfqp_gamma_max: 8.0
+    rcbfqp_grid: 50
+    rcbfqp_reg_weight: 0.1
+    rcbfqp_smooth_weight: 0.05
+    rcbfqp_seed: 0
+
+    # Duality CBF support-function polytope (notebook defaults: 16 Fibonacci
+    # planes, 2 restarts x 15 projected-gradient steps, lr 0.05).
+    duality_planes: 16
+    duality_restarts: 2
+    duality_steps: 15
+    duality_lr: 0.05
+    duality_seed: 0
+
     # MR-CBF Lipschitz estimation domain (only used when cbf_method=mrcbf).
     mrcbf_lipschitz_lo: [-3.0, -2.0, -3.0, -2.0]
     mrcbf_lipschitz_hi: [ 3.0,  2.0,  3.0,  2.0]
@@ -99,8 +120,3 @@ safe_ctrl_node:
     vx_min: -0.15      # min forward velocity command (m/s)
     vx_max: 1.0        # max forward velocity command (m/s)
     vyaw_max: 1.0      # max yaw-rate command magnitude (rad/s)
-
-    # ---- Neural NMR-CBF (currently DISABLED) -------------------------------
-    # This node runs the pure-CBF baseline (phi = 0). The trained Flax network
-    # in value_function.py / ckpts/phi_params.pkl is not loaded. To re-enable
-    # it, add phi/alpha_qp to psi1 in double_integrator_cbf.cbf_qp_filter.

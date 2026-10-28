@@ -1,7 +1,7 @@
-"""Closed-loop unicycle rollout comparing the four phi-source strategies.
+"""Closed-loop unicycle rollout comparing the ported robust-CBF strategies.
 
 Mirrors the subset of the notebook's ``_ALL_ROLLOUTS`` that we ported:
-``plain``, ``mrcbf``, ``pshrcbf``, ``nmrcbf``.  For each method, simulates a
+``plain``, ``mrcbf``, ``pshrcbf``, ``nmrcbf``, ``rcbfqp``, ``duality``.  For each method, simulates a
 unicycle robot doing CBF obstacle avoidance under the same persistent
 position bias and reports:
 
@@ -25,6 +25,7 @@ def _run(method, phi_source, *, bias, dt=0.02, steps=3000):
     """Simulate one rollout under a given phi_source + persistent bias."""
     import double_integrator_cbf as dic
     from feedback_linearization import control_point, to_unicycle_cmd
+    from robust_baselines import solve_filter
 
     d = 0.5
     obstacle = (2.0, 0.35)
@@ -51,8 +52,9 @@ def _run(method, phi_source, *, bias, dt=0.02, steps=3000):
         xhat = true_state + bias                              # noisy estimate
         goal_cp = goal + d * np.array([np.cos(yaw), np.sin(yaw)])
         u_nom = dic.nominal_goto(xhat, goal_cp, u_max=p.u_max)
-        phi = phi_source(xhat, p)
-        u_safe, _, _ = dic.cbf_qp_filter(xhat, u_nom, p, phi=phi)
+        u_safe, _, _, _ = solve_filter(
+            phi_source, xhat, u_nom, [p],
+            nominal_fn=lambda xs: dic.nominal_goto(xs, goal_cp, u_max=p.u_max))
         vc = vc + u_safe * dt
         sp = float(np.linalg.norm(vc))
         if sp > cp_speed_max:
@@ -105,6 +107,8 @@ def main():
                                     mr_samples=2000),
         "pshrcbf": build_phi_source("pshrcbf", p, state_eps),
         "nmrcbf":  build_phi_source("nmrcbf", p, state_eps, nmr_checkpoint=ckpt),
+        "rcbfqp":  build_phi_source("rcbfqp", p, state_eps),
+        "duality": build_phi_source("duality", p, state_eps),
     }
 
     print(f"obstacle: real R={real_radius}, body_margin={body_margin}, "

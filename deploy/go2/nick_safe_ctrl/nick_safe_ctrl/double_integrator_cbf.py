@@ -199,6 +199,87 @@ def cbf_qp_filter_multi(x: np.ndarray, u_nom: np.ndarray, obs_params,
     return u_safe, psi1s, slacks
 
 
+def min_norm_qp_rows(A: np.ndarray, b: np.ndarray, u_nom: np.ndarray,
+                     qp_penalty: float, u_max: float, max_iter: int = 50,
+                     tol: float = 1e-10):
+    """Same relaxed min-norm QP as :func:`cbf_qp_filter_multi`, for many rows.
+
+    Solves::
+
+        min_{u, d}  1/2 ||u - u_nom||^2 + (P/2) sum_i d_i^2
+        s.t.        A[i] . u + b[i] <= d_i
+
+    Eliminating the slack (``d_i = max(0, A[i] . u + b[i])``) leaves a smooth,
+    strongly convex, piecewise-quadratic problem in the 2-D ``u``, solved
+    exactly by semismooth Newton with a backtracking line search (typically
+    2-4 iterations).  Projected Gauss-Seidel converges far too slowly on the
+    Duality CBF's many nearly-parallel vertex rows, hence this solver.
+    For one row it reproduces the closed form in :func:`cbf_qp_filter`.
+    The acceleration box is enforced by a final clip.  Returns
+    ``(u_safe, slacks)``.
+    """
+    A = np.asarray(A, dtype=float)
+    b = np.asarray(b, dtype=float)
+    P = float(qp_penalty)
+
+    def objective(u):
+        r = np.maximum(A @ u + b, 0.0)
+        return 0.5 * float((u - u_nom) @ (u - u_nom)) + 0.5 * P * float(r @ r)
+
+    u = np.array(u_nom, dtype=float)
+    for _ in range(max_iter):
+        r = A @ u + b
+        act = r > 0.0
+        Aa = A[act]
+        grad = (u - u_nom) + P * (Aa.T @ r[act])
+        if float(grad @ grad) < tol:
+            break
+        step = -np.linalg.solve(np.eye(u.size) + P * (Aa.T @ Aa), grad)
+        t, f0, slope = 1.0, objective(u), float(grad @ step)
+        while objective(u + t * step) > f0 + 1e-4 * t * slope and t > 1e-8:
+            t *= 0.5
+        u = u + t * step
+
+    slacks = np.maximum(A @ u + b, 0.0)
+    return np.clip(u, -u_max, u_max), slacks
+
+
+def hocbf_psi1_batch(X: np.ndarray, p: CBFParams):
+    """Vectorized :func:`hocbf_psi1` over a batch ``X`` of shape ``(M, 4)``.
+
+    Returns ``(psi1 (M,), grad (M, 4))``.
+    """
+    X = np.atleast_2d(X)
+    px, vx, py, vy = X[:, 0], X[:, 1], X[:, 2], X[:, 3]
+    ox, oy = p.obstacle_xy
+    dx, dy = px - ox, py - oy
+    rho = np.maximum(np.hypot(dx, dy), p.rho_eps)
+    s = dx * vx + dy * vy
+    a0 = p.alpha0
+
+    psi1 = -s / rho + a0 * (p.obstacle_radius - rho)
+    grad = np.stack([
+        -vx / rho + s * dx / rho ** 3 - a0 * dx / rho,
+        -dx / rho,
+        -vy / rho + s * dy / rho ** 3 - a0 * dy / rho,
+        -dy / rho,
+    ], axis=1)
+    return psi1, grad
+
+
+def cbf_ingredients_batch(X: np.ndarray, p: CBFParams):
+    """Batched ``(LG psi1 (M, 2), Lf psi1 + alpha_qp psi1 (M,))``.
+
+    For the double integrator ``LG psi1 = (dpsi/dvx, dpsi/dvy)`` and
+    ``Lf psi1 = dpsi/dpx * vx + dpsi/dpy * vy``.
+    """
+    X = np.atleast_2d(X)
+    psi1, grad = hocbf_psi1_batch(X, p)
+    LG = grad[:, [1, 3]]
+    Lf = grad[:, 0] * X[:, 1] + grad[:, 2] * X[:, 3]
+    return LG, Lf + p.alpha_qp * psi1
+
+
 def _demo_rollout() -> bool:
     """Closed-loop sanity check -- reproduces the notebook's ``_cbf_step``.
 

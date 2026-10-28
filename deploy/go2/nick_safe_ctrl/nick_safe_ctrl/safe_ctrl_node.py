@@ -7,16 +7,15 @@ Per control tick:
   3. The 2-D double-integrator CBF runs on the control point: state
      ``(xc, vxc, yc, vyc)`` with ``(vxc, vyc)`` the internally integrated
      control-point velocity.
-  4. A goal-seeking PD nominal acceleration is filtered by the min-norm CBF-QP.
+  4. A goal-seeking PD nominal acceleration is filtered by the min-norm CBF-QP,
+     using the robust method selected by ``cbf_method`` (``plain | mrcbf |
+     pshrcbf | nmrcbf | rcbfqp | duality``; see ``phi_sources.py`` and
+     ``robust_baselines.py``).
   5. The safe acceleration is integrated -> ``(vxc, vyc)`` and mapped through
      the linearizing transform -> ``(vx, vyaw)``.
   6. A Unitree sport-mode ``Move`` request is published on /api/sport/request.
 
-The learned NMR-CBF network is intentionally NOT used here -- this is the
-pure-CBF baseline (phi = 0).  ``value_function.py`` is left in place; re-enabling
-the network is a one-line change in ``double_integrator_cbf.cbf_qp_filter``
-(add ``phi / alpha_qp`` to ``psi1``).  Because the NN path is removed, this node
-does not import jax/flax and runs with only numpy + rclpy.
+The node does not import jax/flax and runs with only numpy + rclpy.
 """
 from __future__ import annotations
 
@@ -36,6 +35,7 @@ from unitree_go.msg import SportModeState
 from . import diagnostics
 from . import double_integrator_cbf as dic
 from . import phi_sources
+from . import robust_baselines
 from .feedback_linearization import control_point, to_unicycle_cmd
 
 # Unitree sport-mode API ids (see ros2_sport_client.h).
@@ -93,6 +93,19 @@ class SafeCtrlNode(Node):
         self.declare_parameter("mrcbf_lipschitz_lo", [-3.0, -2.0, -3.0, -2.0])
         self.declare_parameter("mrcbf_lipschitz_hi", [ 3.0,  2.0,  3.0,  2.0])
         self.declare_parameter("mrcbf_lipschitz_samples", 5000)
+        # R-CBF-QP gamma selection (notebook defaults).
+        self.declare_parameter("rcbfqp_samples", 20)
+        self.declare_parameter("rcbfqp_gamma_max", 8.0)
+        self.declare_parameter("rcbfqp_grid", 50)
+        self.declare_parameter("rcbfqp_reg_weight", 0.1)
+        self.declare_parameter("rcbfqp_smooth_weight", 0.05)
+        self.declare_parameter("rcbfqp_seed", 0)
+        # Duality CBF support-function polytope (notebook defaults).
+        self.declare_parameter("duality_planes", 16)
+        self.declare_parameter("duality_restarts", 2)
+        self.declare_parameter("duality_steps", 15)
+        self.declare_parameter("duality_lr", 0.05)
+        self.declare_parameter("duality_seed", 0)
 
         # Command limits (conservative -- raise once verified).
         self.declare_parameter("cp_speed_max", 0.4)
@@ -204,6 +217,21 @@ class SafeCtrlNode(Node):
             nmr_checkpoint=ckpt_path,
             mr_bounds=(mr_lo, mr_hi),
             mr_samples=mr_samples,
+            rcbfqp_cfg=dict(
+                n_samples=int(gp("rcbfqp_samples").value),
+                gamma_max=float(gp("rcbfqp_gamma_max").value),
+                n_grid=int(gp("rcbfqp_grid").value),
+                reg_weight=float(gp("rcbfqp_reg_weight").value),
+                smooth_weight=float(gp("rcbfqp_smooth_weight").value),
+                seed=int(gp("rcbfqp_seed").value),
+            ),
+            duality_cfg=dict(
+                n_planes=int(gp("duality_planes").value),
+                restarts=int(gp("duality_restarts").value),
+                steps=int(gp("duality_steps").value),
+                lr=float(gp("duality_lr").value),
+                seed=int(gp("duality_seed").value),
+            ),
         )
 
         # ---- State -----------------------------------------------------------
@@ -343,10 +371,14 @@ class SafeCtrlNode(Node):
         # to the single-constraint closed form.
         active = self._select_obstacles(cbf_state)
         obs_params = [cbf for cbf, _ in active]
-        phis = [float(self._phi_source(cbf_state, cbf)) for cbf in obs_params]
         if obs_params:
-            u_safe, psi1s, slacks = dic.cbf_qp_filter_multi(
-                cbf_state, u_nom, obs_params, phis)
+            # R-CBF-QP evaluates the nominal at perturbed states in the eps-box.
+            def nominal_fn(xs):
+                return dic.nominal_goto(xs, goal_cp, self._kp, self._kd,
+                                        self._accel_max)
+            u_safe, psi1s, phis, slacks = robust_baselines.solve_filter(
+                self._phi_source, cbf_state, u_nom, obs_params,
+                nominal_fn=nominal_fn)
             bind = int(np.argmax(psi1s))          # most-demanding active obstacle
             psi1 = float(psi1s[bind])
             phi = float(phis[bind])
