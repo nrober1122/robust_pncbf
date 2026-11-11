@@ -6,6 +6,7 @@
   python review_tools/review_runner.py mcpgd <eps,..> <N>       # PGD DMR-CBF     -> review_pgdcert_eps_*.pkl
   python review_tools/review_runner.py mcdmr <eps,..> <N>       # original DMR-CBF (paper's (7)) -> review_dmr_eps_*.pkl
   python review_tools/review_runner.py mcrcbf orig|fix <eps,..> <N>  # R-CBF-QP as in the paper, or without the minimum-gain fallback
+  python review_tools/review_runner.py timing                   # per-step time, original vs PGD DMR-CBF (Table II)
 
 Runs never overwrite an existing results file.
 """
@@ -53,6 +54,27 @@ def run_new(eps_list, n_eval, policy, prefix):
             print(f'  eps={eps:.2f}: {G_["_save_path"](eps, n_eval).name} exists, not overwriting', flush=True)
             continue
         G_['run_eps'](eps)
+
+def time_policies(names, n_repeats=5):
+    """Per-step time as in the compare notebooks' Table II cell: JIT warm-up, then mean over full rollouts / T."""
+    import time
+    x0, b0 = jnp.asarray(G_['x0s'][0]), jnp.asarray(G_['biases'][0])
+    print(f'  devices: {jax.devices()}', flush=True)
+    for name in names:
+        rollout = G_['_make_rollout_logged'](G_['STEP_FNS'][name])
+        jax.block_until_ready(rollout(x0, b0))
+        times = []
+        for _ in range(n_repeats):
+            t0 = time.perf_counter()
+            jax.block_until_ready(rollout(x0, b0))
+            times.append(time.perf_counter() - t0)
+        T = G_['T']
+        print(f'  {name:<18} {np.mean(times)*1e3:8.1f} ms +- {np.std(times)*1e3:.1f} ms  '
+              f'({np.mean(times)/T*1e3:.3f} ms/step, T={T})', flush=True)
+
+if mode == 'timing':   # python review_tools/review_runner.py timing
+    G_['set_eps'](0.3)
+    time_policies(['DMR-CBF', 'PGD DMR-CBF'])
 
 if mode == 'mcpgd':
     run_new([float(e) for e in sys.argv[2].split(',')], int(sys.argv[3]), 'PGD DMR-CBF', 'review_pgdcert')
