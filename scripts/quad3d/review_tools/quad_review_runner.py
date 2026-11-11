@@ -26,10 +26,9 @@ for t, s in CELLS:
     exec(s.split('for _eps in EPS_LIST')[0], G_)
 
 import numpy as np, jax, jax.numpy as jnp
-def time_policies(names, n_repeats=5):
+def time_policies(names, x0, b0, n_repeats=5):
     """Per-step time as in the compare notebooks' Table II cell: JIT warm-up, then mean over full rollouts / T."""
     import time
-    x0, b0 = jnp.asarray(G_['x0s'][0]), jnp.asarray(G_['biases'][0])
     print(f'  devices: {jax.devices()}', flush=True)
     for name in names:
         rollout = G_['_make_rollout_logged'](G_['STEP_FNS'][name])
@@ -52,4 +51,7 @@ if mode in ('mc', 'eval'):
 if mode == 'summary':
     exec(summary_src, G_)
 if mode == 'timing':   # python review_tools/quad_review_runner.py timing
-    time_policies(['DMR-CBF (orig.)', 'PGD DMR-CBF'])
+    Q, E = G_['task'], G_['STATE_EPS']   # X0_DEMO / BIAS_DEMO of quad3d_cbf_compare.ipynb's timing cell
+    x0 = jnp.zeros(G_['NX']).at[Q.PX].set(-1.8).at[Q.PZ].set(G_['Z_HOVER'] - 0.1).at[Q.PY].set(0.2)
+    b0 = jnp.zeros(G_['NX']).at[Q.PX].set(-E[Q.PX]).at[Q.PZ].set(-E[Q.PZ])
+    time_policies(['DMR-CBF (orig.)', 'PGD DMR-CBF'], x0, b0)

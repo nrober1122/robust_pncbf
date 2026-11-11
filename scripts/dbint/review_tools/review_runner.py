@@ -55,10 +55,9 @@ def run_new(eps_list, n_eval, policy, prefix):
             continue
         G_['run_eps'](eps)
 
-def time_policies(names, n_repeats=5):
+def time_policies(names, x0, b0, n_repeats=5):
     """Per-step time as in the compare notebooks' Table II cell: JIT warm-up, then mean over full rollouts / T."""
     import time
-    x0, b0 = jnp.asarray(G_['x0s'][0]), jnp.asarray(G_['biases'][0])
     print(f'  devices: {jax.devices()}', flush=True)
     for name in names:
         rollout = G_['_make_rollout_logged'](G_['STEP_FNS'][name])
@@ -74,7 +73,8 @@ def time_policies(names, n_repeats=5):
 
 if mode == 'timing':   # python review_tools/review_runner.py timing
     G_['set_eps'](0.3)
-    time_policies(['DMR-CBF', 'PGD DMR-CBF'])
+    E = G_['STATE_EPS']   # X0_DEMO / BIAS_DEMO of dbint2d_cbf_compare.ipynb's timing cell
+    time_policies(['DMR-CBF', 'PGD DMR-CBF'], jnp.array([-1.5, 0.0, 0.1, 0.0]), jnp.array([-E[0], E[1], E[2], -E[3]]))
 
 if mode == 'mcpgd':
     run_new([float(e) for e in sys.argv[2].split(',')], int(sys.argv[3]), 'PGD DMR-CBF', 'review_pgdcert')
